@@ -1,0 +1,44 @@
+* Supac - A declarative package manager
+:PROPERTIES:
+:ID:       45a3a394-d05b-438a-9a5e-06f96e1a87e4
+:END:
+
+Supac is a declarative package manager written in rust, and configurable in [[https://github.com/nushell/nushell][nushell]].
+It is meant to emulate nix but without the headaches that come along with it. It does
+not maintain packages by itself but rather hooks with the existing package managers on your
+system to configure them declaratively.
+
+** Support
+:PROPERTIES:
+:ID:       2b69be5a-4830-485b-b321-dd27d3b51527
+:END:
+Right now the following package managers are supported:
+- Arch Linux (any of your package managers capable of elevating permissions by themselves)
+- Flatpak (user mode configuration)
+
+** Checklist of package managers
+:PROPERTIES:
+:ID:       2ffaa4f8-c89a-4e24-bb11-e7afb08e2cad
+:END:
+
+This is the order in which I wish to include package manager support:
+
+- cargo
+- rustup
+- uv
+- opam
+- npm
+- dnf
+
+** Upcoming features
+:PROPERTIES:
+:ID:       576a42fc-9fe5-411a-9dc8-490b7b31ab26
+:END:
+
+- Show unmanaged packages
+- list active backends
+- Allow disabling backends
+- clean-cache command
+- rebuild command
+- Flatpak systemwide installations
+- =pacman= support for arch

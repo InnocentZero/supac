@@ -7,8 +7,8 @@ use nu_protocol::{Record, Span};
 const KV_PAIRS: [(&'static str, &'static str); 1] = [("arch_package_manager", "paru")];
 
 pub fn get_config_path() -> Result<PathBuf> {
-    let config_dir = if let Ok(config_dir) = env::var("CALCU_RS_HOME") {
-        trace!("$CALCU_RS_HOME was defined. Using the value {config_dir}");
+    let config_dir = if let Ok(config_dir) = env::var("SUPAC_HOME") {
+        trace!("$SUPAC_HOME was defined. Using the value {config_dir}");
         Ok(config_dir)
     } else if let Ok(config_dir) = env::var("XDG_CONFIG") {
         trace!("$XDG_CONFIG was defined. Using the value {config_dir}");
@@ -59,7 +59,7 @@ pub fn write_default_config(config_path: &PathBuf) -> Result<()> {
     trace!("Built default config");
 
     let mut config_spec = String::with_capacity(30);
-    config_spec.push('{');
+    config_spec.push_str("{\n");
     let _ = default_config
         .into_iter()
         .map(|(opt, value)| {
