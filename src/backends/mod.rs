@@ -1,16 +1,19 @@
 use anyhow::Result;
-use arch::Arch;
-use flatpak::Flatpak;
+pub use arch::Arch;
+pub use cargo::Cargo;
+pub use flatpak::Flatpak;
 use nu_protocol::Record;
 
 use crate::parser::Engine;
 
-pub mod arch;
-pub mod flatpak;
+mod arch;
+mod cargo;
+mod flatpak;
 
 pub enum Backends {
     Arch(Arch),
     Flatpak(Flatpak),
+    Cargo(Cargo),
 }
 
 pub trait Backend {
@@ -26,6 +29,7 @@ impl Backends {
         match self {
             Backends::Arch(arch) => arch.install(engine, config),
             Backends::Flatpak(flatpak) => flatpak.install(engine, config),
+            Backends::Cargo(cargo) => cargo.install(engine, config),
         }
     }
 
@@ -33,6 +37,7 @@ impl Backends {
         match self {
             Backends::Arch(arch) => arch.remove(config),
             Backends::Flatpak(flatpak) => flatpak.remove(config),
+            Backends::Cargo(cargo) => cargo.remove(config),
         }
     }
 }
@@ -66,6 +71,6 @@ macro_rules! backend_parse {
 #[macro_export]
 macro_rules! parse_all_backends {
     ($packages:ident) => {
-        backend_parse!($packages, Arch, Flatpak)
+        backend_parse!($packages, Arch, Flatpak, Cargo)
     };
 }

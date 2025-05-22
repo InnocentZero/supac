@@ -5,8 +5,9 @@ use std::path;
 
 use backends::Backend;
 use backends::Backends;
-use backends::arch::Arch;
-use backends::flatpak::Flatpak;
+use backends::Arch;
+use backends::Flatpak;
+use backends::Cargo;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
