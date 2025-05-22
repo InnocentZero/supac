@@ -109,13 +109,17 @@ impl Backend for Flatpak {
             false,
         )?;
 
-        installed_packages
+        let extra_packages = installed_packages
             .lines()
-            .filter(|package| !self.packages.contains_key(*package))
-            .map(|package| {
-                run_command(["flatpak", "remove", "--delete-data", package], Perms::User)
-            })
-            .collect::<Result<()>>()?;
+            .filter(|package| !self.packages.contains_key(*package));
+
+        run_command(
+            ["flatpak", "remove", "--delete-data"]
+                .into_iter()
+                .chain(extra_packages),
+            Perms::User,
+        )?;
+
         log::info!("Successfully removed extra flatpak packages");
 
         run_command(
