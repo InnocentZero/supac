@@ -239,7 +239,7 @@ fn values_to_remotes(remotes: &[Value]) -> HashMap<String, String> {
         .iter()
         .map(|remote| -> Option<_> {
             let remote = remote.as_record().ok();
-            let name = remote.map(|record| record.get("name"))??.as_str().ok()?;
+            let name = remote.map(|record| record.get("package"))??.as_str().ok()?;
             let url = remote.map(|record| record.get("url"))??.as_str().ok()?;
             Some((name.to_owned(), url.to_owned()))
         })
@@ -249,7 +249,7 @@ fn values_to_remotes(remotes: &[Value]) -> HashMap<String, String> {
 
 fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {
     let record = value.as_record().ok()?;
-    let name = record.get("name")?.as_str().ok()?.to_owned();
+    let name = record.get("package")?.as_str().ok()?.to_owned();
 
     let remote = record
         .get("remote")
@@ -274,7 +274,7 @@ fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {
 
 fn value_to_pinspec(value: &Value) -> Option<(String, PinOpts)> {
     let record = value.as_record().ok()?;
-    let name = record.get("name")?.as_str().ok()?.to_owned();
+    let name = record.get("package")?.as_str().ok()?.to_owned();
 
     let branch = record
         .get("branch")

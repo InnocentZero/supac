@@ -88,7 +88,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         .get("no_default_features")
         .map(|value| value.as_bool().ok())
         .flatten()
-        .unwrap_or(false);
+        .unwrap_or(false) && !all_features;
 
     let features = if all_features || no_default_features {
         Box::new([])

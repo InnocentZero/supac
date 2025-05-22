@@ -44,3 +44,30 @@ This is the order in which I wish to include package manager support:
 - =pacman= support for arch
 - allow setting config options for config-files whose config can be represented in a
   format parse-able by nushell
+** Package declaration
+:PROPERTIES:
+:ID:       c01e5b6d-2456-442a-8f60-33dae3f92698
+:END:
+
+An example is provided in the [[./example_config/][example_config]] folder.
+
+A brief rundown:
+
+- ~/home/user/.config/supac/package.nu~ should return a nu record with one record per backend
+- For =Arch=, the record consists of a list of package records, each package labelled by its name
+  and an optional post hook after execution.
+- For =Cargo=, again, a list of package records, with each record labelled by its package name,
+  an optional git remote, an optional post hook, optionally specifying the following:
+  - =all_features=: whether the binary should be installed with all the optional opt-in features
+  - =no_default__features=: whether the binary should be installed without any feature whatsoever
+  - =features=: a list of features that the binary supports that it should be installed with
+- For =Flatpak=, it parses three subrecords:
+  - =Pinned=: This is not compulsory, but this is a list of pinned runtimes, optionally specifying
+    the branch and the architecture, along with a post hook
+  - =Packages=: Like the other two, this specifies a list of package records. These may optionally
+    contain the remote from which to install, and a post hook
+  - =Remotes=: Useless as of now, will be useful once the =rebuild= command is released
+
+Anything except the package name is not needed in a package specification. The file ~config.nu~
+in the same directory should return a record giving out the configuration. As of now, only one
+config option is implemented.

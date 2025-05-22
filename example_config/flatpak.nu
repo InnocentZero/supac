@@ -1,26 +1,24 @@
 let flatpak_packages =  {
-  "remotes": [
+  "remotes": [ # useless as of now, will be useful for rebuild command, optional
     {
-      "name": "flathub",
+      "package": "flathub",
       "url": "https://dl.flathub.org/repo/flathub.flatpakrepo",
     }
   ]
-  "pinned": [
-    { "name": "re.rizin.cutter.plugin.rz-ghidra"},
-    { "name": "org.gtk.Gtk3theme.adw-gtk3-dark"},
-    { "name": "org.gtk.Gtk3theme.adw-gtk3"},
+  "pinned": [ # pinned user flatpak runtimes, optional
+    {
+      "package": "org.gtk.Gtk3theme.adw-gtk3",
+      "branch": "stable", # branch of the pinned package
+      "arch": "x86_64",
+      "post_hook": {|| echo foo}, # executed after the pin is installed
+    },
   ]
-  "packages": [
-    { "name": "com.github.flxzt.rnote"},
-    { "name": "com.github.johnfactotum.Foliate"},
-    { "name": "com.github.tchx84.Flatseal"},
-    { "name": "dev.vencord.Vesktop"},
-    { "name": "eu.betterbird.Betterbird"},
-    { "name": "io.github.giantpinkrobots.flatsweep"},
-    { "name": "io.gitlab.librewolf-community"},
-    { "name": "org.gnome.Boxes"},
-    { "name": "org.gnome.seahorse.Application"},
-    { "name": "org.mozilla.firefox"},
-    { "name": "re.rizin.cutter"},
+  "packages": [ # only user flatpaks
+    {
+       "package": "com.github.flxzt.rnote",
+       "remote": "flathub", # flatpak remote from which to install the package
+                            # must correspond to a valid remote on the system
+                            # optional
+    },
   ]
 }
