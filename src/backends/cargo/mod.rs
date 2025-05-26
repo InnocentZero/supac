@@ -4,7 +4,7 @@ use std::fs;
 use anyhow::{Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, run_command};
+use crate::commands::{Perms, run_command, run_command_for_stdout};
 use crate::parser::Engine;
 
 use super::Backend;
@@ -33,15 +33,21 @@ impl Backend for Cargo {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
+        log::info!("Parsed cargo packages from spec");
+
         Ok(Cargo { packages })
     }
 
-    fn install(&mut self, engine: &mut Engine, _config: &mut Record) -> Result<()> {
+    fn install(&self, engine: &mut Engine, _config: &mut Record) -> Result<()> {
         let packages = get_installed_packages();
+        log::info!("Successfully parsed installed packages");
+
         let configured_packages = &self.packages;
         let missing_packages = configured_packages
             .iter()
             .filter(|(name, _)| !packages.contains(*name));
+
+        log::info!("Successfully found missing packages");
 
         let mut post_hooks = Vec::new();
 
@@ -52,20 +58,48 @@ impl Backend for Cargo {
             })
             .collect::<Result<()>>()?;
 
-        post_hooks
+        log::info!("Successfully installed missing packages");
+
+        let result = post_hooks
             .into_iter()
             .map(|hook| engine.execute_closure(hook))
-            .collect()
+            .collect();
+
+        log::info!("Successfully executed all the post hooks");
+
+        result
     }
 
-    fn remove(&mut self, _config: &mut Record) -> Result<()> {
+    fn remove(&self, _config: &mut Record) -> Result<()> {
         let packages = get_installed_packages();
+        log::info!("Successfully parsed installed packages");
+
         let configured_packages = &self.packages;
         packages
             .into_iter()
             .filter(|package| !configured_packages.contains_key(package))
             .map(|package| run_command(["cargo", "uninstall", package.as_str()], Perms::User))
-            .collect()
+            .collect::<Result<()>>()?;
+
+        log::info!("Successfully removed extraneous packages");
+
+        Ok(())
+    }
+
+    fn clean_cache(&self, _config: &Record) -> Result<()> {
+        let stdout = run_command_for_stdout(["cargo", "cache", "--help"], Perms::User, false);
+
+        match stdout {
+            Ok(_) => {
+                run_command(["cargo", "cache", "--autoclean"], Perms::User)?;
+                log::info!("Removed cargo's cache");
+            }
+            Err(_) => {
+                log::warn!("cargo-cache not found");
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -88,7 +122,8 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         .get("no_default_features")
         .map(|value| value.as_bool().ok())
         .flatten()
-        .unwrap_or(false) && !all_features;
+        .unwrap_or(false)
+        && !all_features;
 
     let features = if all_features || no_default_features {
         Box::new([])
@@ -150,6 +185,8 @@ fn get_installed_packages() -> HashSet<String> {
         Ok(cratespec) => cratespec,
         Err(_) => return HashSet::new(),
     };
+
+    log::info!("Found installed packages from crates2.json");
 
     let packages: HashSet<_> = cratespec
         .get("installs")

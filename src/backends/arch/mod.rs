@@ -27,12 +27,8 @@ impl Backend for Arch {
         Ok(Arch { packages })
     }
 
-    fn install(&mut self, engine: &mut Engine, config: &mut Record) -> Result<()> {
-        let package_manager = config
-            .get_mut("arch_package_manager")
-            .map(|paru| -> Option<&str> { paru.as_str().ok() })
-            .flatten()
-            .unwrap_or("paru");
+    fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()> {
+        let package_manager = get_package_manager(config);
 
         let installed = find_packages(package_manager)?;
 
@@ -103,12 +99,8 @@ impl Backend for Arch {
             .collect()
     }
 
-    fn remove(&mut self, config: &mut Record) -> Result<()> {
-        let package_manager = config
-            .get_mut("arch_package_manager")
-            .map(|paru| -> Option<&str> { paru.as_str().ok() })
-            .flatten()
-            .unwrap_or("paru");
+    fn remove(&self, config: &mut Record) -> Result<()> {
+        let package_manager = get_package_manager(config);
 
         let installed = find_packages(package_manager)?;
 
@@ -158,6 +150,41 @@ impl Backend for Arch {
                 Perms::User,
             )
         }
+    }
+
+    fn clean_cache(&self, config: &Record) -> Result<()> {
+        let package_manager = get_package_manager(config);
+
+        let unused = run_command_for_stdout(
+            [
+                package_manager,
+                "--query",
+                "--deps",
+                "--unrequired",
+                "--quiet",
+            ],
+            Perms::User,
+            true,
+        )?;
+
+        log::info!("Found unused packages");
+
+        let result = run_command(
+            [
+                package_manager,
+                "--remove",
+                "--nosave",
+                "--recursive",
+                "--unneeded",
+            ]
+            .into_iter()
+            .chain(unused.lines()),
+            Perms::User,
+        );
+
+        log::info!("Removed unused dependencies");
+
+        result
     }
 }
 
@@ -214,4 +241,12 @@ fn find_group_packages(group: &str, package_manager: &str) -> Result<Box<[String
             .map(ToOwned::to_owned)
             .collect()
     })
+}
+
+fn get_package_manager(config: &Record) -> &str {
+    config
+        .get("arch_package_manager")
+        .map(|paru| -> Option<&str> { paru.as_str().ok() })
+        .flatten()
+        .unwrap_or("paru")
 }

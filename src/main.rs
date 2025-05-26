@@ -3,11 +3,11 @@ use std::fs::read;
 use std::io;
 use std::path;
 
+use backends::Arch;
 use backends::Backend;
 use backends::Backends;
-use backends::Arch;
-use backends::Flatpak;
 use backends::Cargo;
+use backends::Flatpak;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
@@ -161,7 +161,7 @@ fn main() -> io::Result<()> {
                 SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
                 SubCommand::Unmanaged(_unmanaged_command) => todo!(),
                 SubCommand::Backends(_backends_command) => todo!(),
-                SubCommand::CleanCache(_clean_cache_command) => todo!(),
+                SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
             })
         })
         .flatten()

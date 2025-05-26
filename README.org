@@ -38,7 +38,7 @@ This is the order in which I wish to include package manager support:
 - Show unmanaged packages
 - list active backends
 - Allow disabling backends
-- clean-cache command
+- +clean-cache command+
 - rebuild command
 - Flatpak systemwide installations
 - =pacman= support for arch

@@ -62,7 +62,7 @@ impl Backend for Flatpak {
         })
     }
 
-    fn install(&mut self, engine: &mut Engine, _: &mut Record) -> Result<()> {
+    fn install(&self, engine: &mut Engine, _: &mut Record) -> Result<()> {
         let mut closures = Vec::new();
 
         let installed_packages = run_command_for_stdout(
@@ -85,7 +85,7 @@ impl Backend for Flatpak {
         Ok(())
     }
 
-    fn remove(&mut self, _: &mut Record) -> Result<()> {
+    fn remove(&self, _: &mut Record) -> Result<()> {
         let pins = run_command_for_stdout(["flatpak", "pin", "--user"], Perms::User, true)?;
         let pins = pins
             .lines()
@@ -122,6 +122,10 @@ impl Backend for Flatpak {
 
         log::info!("Successfully removed extra flatpak packages");
 
+        Ok(())
+    }
+
+    fn clean_cache(&self, _config: &Record) -> Result<()> {
         run_command(
             ["flatpak", "remove", "--delete-data", "--unused", "--user"],
             Perms::User,

@@ -17,11 +17,12 @@ pub enum Backends {
 }
 
 pub trait Backend {
-    fn install(&mut self, engine: &mut Engine, config: &mut Record) -> Result<()>;
+    fn clean_cache(&self, config: &Record) -> Result<()>;
+    fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()>;
     fn new(value: &Record) -> Result<Self>
     where
         Self: Sized;
-    fn remove(&mut self, config: &mut Record) -> Result<()>;
+    fn remove(&self, config: &mut Record) -> Result<()>;
 }
 
 impl Backends {
@@ -38,6 +39,14 @@ impl Backends {
             Backends::Arch(arch) => arch.remove(config),
             Backends::Flatpak(flatpak) => flatpak.remove(config),
             Backends::Cargo(cargo) => cargo.remove(config),
+        }
+    }
+
+    pub fn clean_cache(&mut self, config: &Record) -> Result<()> {
+        match self {
+            Backends::Arch(arch) => arch.clean_cache(config),
+            Backends::Flatpak(flatpak) => flatpak.clean_cache(config),
+            Backends::Cargo(cargo) => cargo.clean_cache(config),
         }
     }
 }
