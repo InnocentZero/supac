@@ -44,6 +44,8 @@ This is the order in which I wish to include package manager support:
 - =pacman= support for arch
 - allow setting config options for config-files whose config can be represented in a
   format parse-able by nushell
+- Config validation
+
 ** Package declaration
 :PROPERTIES:
 :ID:       c01e5b6d-2456-442a-8f60-33dae3f92698
