@@ -155,7 +155,7 @@ impl Backend for Arch {
     fn clean_cache(&self, config: &Record) -> Result<()> {
         let package_manager = get_package_manager(config);
 
-        let unused = run_command_for_stdout(
+        let unused = match run_command_for_stdout(
             [
                 package_manager,
                 "--query",
@@ -165,7 +165,12 @@ impl Backend for Arch {
             ],
             Perms::User,
             true,
-        )?;
+        ) {
+            Ok(unused) => unused,
+            Err(_) => {
+                return Ok(());
+            }
+        };
 
         log::info!("Found unused packages");
 
