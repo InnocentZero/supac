@@ -9,6 +9,13 @@ use crate::parser::Engine;
 
 use super::Backend;
 
+const PACKAGE_LIST_KEY: &str = "packages";
+const PACKAGE_KEY: &str = "package";
+const HOOK_KEY: &str = "post_hook";
+
+const DEFAULT_PACKAGE_MANAGER: &str = "paru";
+const ARCH_PACKAGE_MANGER_KEY: &str = "arch_package_manager";
+
 #[derive(Clone, Debug)]
 pub struct Arch {
     packages: HashMap<String, Option<Closure>>,
@@ -17,9 +24,10 @@ pub struct Arch {
 impl Backend for Arch {
     fn new(value: &Record) -> Result<Self> {
         let packages = value
-            .get("packages")
+            .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Arch"))?
-            .as_list()?
+            .as_list()
+            .map_err(|_| anyhow!("The package list in Arch is not a list"))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -135,8 +143,10 @@ impl Backend for Arch {
         let mut extra = installed.difference(&configured_packages).peekable();
 
         if extra.peek().is_none() {
+            log::info!("No extra packages to remove!");
             Ok(())
         } else {
+            log::info!("Removing extra packages");
             run_command(
                 [
                     package_manager,
@@ -172,9 +182,9 @@ impl Backend for Arch {
             }
         };
 
-        log::info!("Found unused packages");
+        log::info!("Found unused packages, Removing unused dependencies");
 
-        let result = run_command(
+        run_command(
             [
                 package_manager,
                 "--remove",
@@ -185,11 +195,7 @@ impl Backend for Arch {
             .into_iter()
             .chain(unused.lines()),
             Perms::User,
-        );
-
-        log::info!("Removed unused dependencies");
-
-        result
+        )
     }
 }
 
@@ -197,17 +203,24 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
     let record = value.as_record()?;
 
     let package = record
-        .get("package")
+        .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
-        .as_str()?
+        .as_str()
+        .map_err(|_| anyhow!("The package was not a string"))?
         .to_owned();
 
     let post_hook = record
-        .get("post_hook")
-        .map(|closure| closure.as_closure().ok())
+        .get(HOOK_KEY)
+        .map(|closure| {
+            closure.as_closure().ok().or_else(|| {
+                log::warn!("The closure {closure:#?} was not a closure! Ignoring");
+                None
+            })
+        })
         .flatten()
         .map(|post_hook| {
             if !post_hook.captures.is_empty() {
+                log::warn!("Closure {post_hook:#?} was trying to access a local variable");
                 None
             } else {
                 Some(post_hook.to_owned())
@@ -250,8 +263,329 @@ fn find_group_packages(group: &str, package_manager: &str) -> Result<Box<[String
 
 fn get_package_manager(config: &Record) -> &str {
     config
-        .get("arch_package_manager")
-        .map(|paru| -> Option<&str> { paru.as_str().ok() })
+        .get(ARCH_PACKAGE_MANGER_KEY)
+        .map(|paru| paru.as_str().ok())
         .flatten()
-        .unwrap_or("paru")
+        .unwrap_or(DEFAULT_PACKAGE_MANAGER)
+}
+
+#[cfg(test)]
+mod test {
+    use nu_protocol::{Id, Span};
+
+    use super::*;
+
+    #[test]
+    fn arch_construction_ok() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let package_list = Value::list(
+            vec![Value::record(pkg_record, Span::test_data())],
+            Span::test_data(),
+        );
+
+        let record = Record::from_raw_cols_vals(
+            ["packages", "foo"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![package_list, Value::nothing(Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let arch = Arch::new(&record);
+        assert!(arch.is_ok());
+        let arch = arch.unwrap();
+        assert_eq!(arch.packages.len(), 1);
+        assert!(
+            arch.packages
+                .keys()
+                .collect::<HashSet<_>>()
+                .contains(&"aerospace".to_owned())
+        );
+    }
+
+    #[test]
+    fn arch_construction_not_list() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let package_list = Value::record(pkg_record, Span::test_data());
+
+        let record = Record::from_raw_cols_vals(
+            ["packages", "foo"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![package_list, Value::nothing(Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let arch = Arch::new(&record);
+        assert!(arch.is_err());
+    }
+
+    #[test]
+    fn arch_construction_partially_improper() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let pkg_record_2 = Record::from_raw_cols_vals(
+            vec!["pkg".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let package_list = vec![
+            Value::record(pkg_record, Span::test_data()),
+            Value::record(pkg_record_2, Span::test_data()),
+        ];
+
+        let record = Record::from_raw_cols_vals(
+            ["packages", "foo"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::list(package_list, Span::test_data()),
+                Value::nothing(Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let arch = Arch::new(&record);
+        assert!(arch.is_err());
+    }
+
+    #[test]
+    fn arch_construction_no_packages() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let pkg_record_2 = Record::from_raw_cols_vals(
+            vec!["pkg".to_owned()],
+            vec![Value::string("aerospace", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let package_list = vec![
+            Value::record(pkg_record, Span::test_data()),
+            Value::record(pkg_record_2, Span::test_data()),
+        ];
+
+        let record = Record::from_raw_cols_vals(
+            ["pkgs", "foo"].into_iter().map(ToOwned::to_owned).collect(),
+            vec![
+                Value::list(package_list, Span::test_data()),
+                Value::nothing(Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let arch = Arch::new(&record);
+        assert!(arch.is_err());
+    }
+
+    #[test]
+    fn val_to_pkgspec_regular() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::closure(closure.clone(), Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let res = value_to_pkgspec(&value);
+
+        assert!(res.is_ok());
+
+        let (package, closure_opt) = res.unwrap();
+        assert_eq!(package, "foo");
+
+        assert!(closure_opt.is_some());
+        assert_eq!(closure_opt.as_ref().unwrap().block_id, closure.block_id);
+        assert_eq!(closure_opt.unwrap().captures, vec![]);
+    }
+
+    #[test]
+    fn val_to_pkgspec_bound_closure() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![(Id::new(1), Value::bool(true, Span::test_data()))],
+        };
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::closure(closure.clone(), Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let res = value_to_pkgspec(&value);
+
+        assert!(res.is_ok());
+
+        let (package, closure_opt) = res.unwrap();
+        assert_eq!(package, "foo");
+
+        assert!(closure_opt.is_none());
+    }
+
+    #[test]
+    fn val_to_pkgspec_no_closure() {
+        let record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let res = value_to_pkgspec(&value);
+        assert!(res.is_ok());
+
+        let (package, closure_opt) = res.unwrap();
+        assert_eq!(package, "foo");
+
+        assert!(closure_opt.is_none());
+    }
+
+    #[test]
+    fn val_to_pkgspec_random_field() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "random_field"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::string("bar", Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let res = value_to_pkgspec(&value);
+        assert!(res.is_ok());
+
+        let (package, closure_opt) = res.unwrap();
+        assert_eq!(package, "foo");
+
+        assert!(closure_opt.is_none());
+    }
+
+    #[test]
+    fn val_to_pkgspec_missing_package() {
+        let record = Record::from_raw_cols_vals(
+            ["not_package", "random_field"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::string("bar", Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let res = value_to_pkgspec(&value);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn pkgmgr_absent() {
+        let config =
+            Record::from_raw_cols_vals(vec![], vec![], Span::test_data(), Span::test_data())
+                .unwrap();
+        let res = get_package_manager(&config);
+        assert_eq!(res, "paru");
+    }
+
+    #[test]
+    fn pkgmgr_others() {
+        let config = Record::from_raw_cols_vals(
+            vec!["foo".to_owned()],
+            vec![Value::string("bar", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let res = get_package_manager(&config);
+        assert_eq!(res, "paru");
+    }
+
+    #[test]
+    fn pkgmgr_present() {
+        let config = Record::from_raw_cols_vals(
+            vec!["arch_package_manager".to_owned()],
+            vec![Value::string("pacman", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let res = get_package_manager(&config);
+        assert_eq!(res, "pacman");
+    }
 }

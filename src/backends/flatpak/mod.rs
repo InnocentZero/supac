@@ -9,6 +9,16 @@ use crate::parser::Engine;
 
 use super::Backend;
 
+const REMOTE_LIST_KEY: &str = "remotes";
+const PINNED_KEY: &str = "pinned";
+const PACKAGE_LIST_KEY: &str = "packages";
+const PACKAGE_KEY: &str = "package";
+const URL_KEY: &str = "url";
+const REMOTE_KEY: &str = "remote";
+const HOOK_KEY: &str = "post_hook";
+const BRANCH_KEY: &str = "branch";
+const ARCH_KEY: &str = "arch";
+
 #[derive(Clone, Debug)]
 pub struct FlatpakOpts {
     remote: Option<String>,
@@ -31,21 +41,31 @@ pub struct Flatpak {
 impl Backend for Flatpak {
     fn new(value: &Record) -> Result<Self> {
         let _remotes = value
-            .get("remotes")
-            .map(|remotes| remotes.as_list().ok())
+            .get(REMOTE_LIST_KEY)
+            .map(|remotes| {
+                remotes.as_list().ok().or_else(|| {
+                    log::warn!("remotes {remotes:#?} was not a list, ignoring");
+                    None
+                })
+            })
             .flatten()
             .map(values_to_remotes)
             .unwrap_or_default();
 
         let pinned = value
-            .get("pinned")
-            .map(|pinned| pinned.as_list().ok())
+            .get(PINNED_KEY)
+            .map(|pinned| {
+                pinned.as_list().ok().or_else(|| {
+                    log::warn!("Pinned {pinned:#?} was not a list, ignoring");
+                    None
+                })
+            })
             .flatten()
             .map(|values| values.iter().map(value_to_pinspec).flatten().collect())
             .unwrap_or_default();
 
         let packages = value
-            .get("packages")
+            .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Flatpak"))?
             .as_list()?
             .iter()
@@ -90,9 +110,9 @@ impl Backend for Flatpak {
         let pins = pins
             .lines()
             .map(|runtime| runtime.trim())
-            .map(|runtime| (runtime, parse_runtime_format(runtime)));
+            .map(|runtime| parse_runtime_format(runtime));
 
-        pins.filter(|(_, (runtime, _))| !self.pinned.contains_key(*runtime))
+        pins.filter(|(runtime, _)| !self.pinned.contains_key(*runtime))
             .map(|(pin, _)| run_command(["flatpak", "pin", "--remove", "--user", pin], Perms::User))
             .collect::<Result<()>>()?;
         log::info!("Removed extra flatpak pins");
@@ -239,65 +259,116 @@ impl Flatpak {
 }
 
 fn values_to_remotes(remotes: &[Value]) -> HashMap<String, String> {
-    remotes
-        .iter()
-        .map(|remote| -> Option<_> {
-            let remote = remote.as_record().ok();
-            let name = remote.map(|record| record.get("package"))??.as_str().ok()?;
-            let url = remote.map(|record| record.get("url"))??.as_str().ok()?;
-            Some((name.to_owned(), url.to_owned()))
-        })
-        .flatten()
-        .collect()
+    remotes.iter().flat_map(extract_remote).collect()
 }
 
 fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {
-    let record = value.as_record().ok()?;
-    let name = record.get("package")?.as_str().ok()?.to_owned();
+    let record = value.as_record().ok().or_else(|| {
+        log::warn!("pkgspec {value:#?} was not a record, ignoring");
+        None
+    })?;
+
+    let name = record
+        .get(PACKAGE_KEY)
+        .or_else(|| {
+            log::warn!("record {record:#?} package key is missing, ignoring");
+            None
+        })?
+        .as_str()
+        .ok()
+        .or_else(|| {
+            log::warn!("record {record:#?} package key is not a string, ignoring");
+            None
+        })?
+        .to_owned();
 
     let remote = record
-        .get("remote")
-        .map(|remote| remote.as_str().ok())
+        .get(REMOTE_KEY)
+        .map(|remote| {
+            remote.as_str().ok().or_else(|| {
+                log::warn!("record {record:#?} remote key is not a string, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
-        .get("post_hook")
-        .map(|closure| closure.as_closure().ok())
+        .get(HOOK_KEY)
+        .map(|closure| {
+            closure.as_closure().ok().or_else(|| {
+                log::warn!("record {record:#?} hook is not a closure, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(|post_hook| {
             if !post_hook.captures.is_empty() {
+                log::warn!("closure {post_hook:#?} captures locals, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
             }
         })
         .flatten();
+
     Some((name, FlatpakOpts { remote, post_hook }))
 }
 
 fn value_to_pinspec(value: &Value) -> Option<(String, PinOpts)> {
-    let record = value.as_record().ok()?;
-    let name = record.get("package")?.as_str().ok()?.to_owned();
+    let record = value.as_record().ok().or_else(|| {
+        log::warn!("pinspec {value:#?} is not a record, ignoring");
+        None
+    })?;
+
+    let name = record
+        .get(PACKAGE_KEY)
+        .or_else(|| {
+            log::warn!("record {record:#?} package key missing, ignoring");
+            None
+        })?
+        .as_str()
+        .ok()
+        .or_else(|| {
+            log::warn!("record {record:#?} package key is not a string, ignoring");
+            None
+        })?
+        .to_owned();
 
     let branch = record
-        .get("branch")
-        .map(|branch| branch.as_str().ok())
+        .get(BRANCH_KEY)
+        .map(|branch| {
+            branch.as_str().ok().or_else(|| {
+                log::warn!("record {record:#?} branch is not a string, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(ToOwned::to_owned);
 
     let arch = record
-        .get("arch")
-        .map(|branch| branch.as_str().ok())
+        .get(ARCH_KEY)
+        .map(|arch| {
+            arch.as_str().ok().or_else(|| {
+                log::warn!("record {record:#?} arch is not a string, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
-        .get("post_hook")
-        .map(|closure| closure.as_closure().ok())
+        .get(HOOK_KEY)
+        .map(|closure| {
+            closure.as_closure().ok().or_else(|| {
+                log::warn!("record {record:#?} hook is not a closure, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(|post_hook| {
             if !post_hook.captures.is_empty() {
+                log::warn!("closure {post_hook:#?} captures variables, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
@@ -321,8 +392,8 @@ fn parse_runtime_format(runtime: &str) -> (&str, PinOpts) {
         Some("runtime") => iter.next().unwrap(),
         ret => ret.unwrap(),
     };
-    let arch = iter.next().map(|s| s.to_owned());
-    let branch = iter.next().map(|s| s.to_owned());
+    let arch = iter.next().filter(|s| !s.is_empty()).map(|s| s.to_owned());
+    let branch = iter.next().filter(|s| !s.is_empty()).map(|s| s.to_owned());
 
     (
         runtime,
@@ -332,4 +403,548 @@ fn parse_runtime_format(runtime: &str) -> (&str, PinOpts) {
             post_hook: None,
         },
     )
+}
+
+fn extract_remote(remote: &Value) -> Option<(String, String)> {
+    let record = remote.as_record().ok().or_else(|| {
+        log::warn!("remote value {remote:#?} was not a record, ignoring");
+        None
+    })?;
+
+    let name = record
+        .get(PACKAGE_KEY)
+        .or_else(|| {
+            log::warn!("remote {remote:#?} name  was not found, ignoring");
+            None
+        })?
+        .as_str()
+        .ok()
+        .or_else(|| {
+            log::warn!("remote {remote:#?} name was not a string, ignoring");
+            None
+        })?;
+
+    let url = record
+        .get(URL_KEY)
+        .or_else(|| {
+            log::warn!("remote {remote:#?} url  was not found, ignoring");
+            None
+        })?
+        .as_str()
+        .ok()
+        .or_else(|| {
+            log::warn!("remote {remote:#?} url was not a string, ignoring");
+            None
+        })?;
+
+    Some((name.to_owned(), url.to_owned()))
+}
+
+#[cfg(test)]
+mod test {
+    use nu_protocol::{Id, Span};
+
+    use super::*;
+
+    #[test]
+    fn value_to_pkgspec_no_opts() {
+        let record = Record::from_raw_cols_vals(
+            ["package"].into_iter().map(ToOwned::to_owned).collect(),
+            vec![Value::string(
+                "org.gtk.Gtk3theme.adw-gtk3",
+                Span::test_data(),
+            )],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.remote.is_none());
+        assert!(result.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_hook() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.remote.is_none());
+        assert!(result.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pkgspec_arch() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "remote", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::string("flathub", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.remote.is_some());
+        let remote = result.1.remote.unwrap();
+        assert_eq!(remote, "flathub");
+        assert!(result.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pkgspec_wrong() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "remote", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::bool(false, Span::test_data()),
+                Value::string("foo", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_wrong_fields() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "remote", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+                Value::string("foo", Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.remote.is_none());
+        assert!(result.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_not_record() {
+        let value = Value::bool(false, Span::test_data());
+
+        let result = value_to_pkgspec(&value);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn value_to_pinspec_no_opts() {
+        let record = Record::from_raw_cols_vals(
+            ["package"].into_iter().map(ToOwned::to_owned).collect(),
+            vec![Value::string(
+                "org.gtk.Gtk3theme.adw-gtk3",
+                Span::test_data(),
+            )],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.arch.is_none());
+        assert!(result.1.branch.is_none());
+        assert!(result.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pinspec_hook() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.arch.is_none());
+        assert!(result.1.branch.is_none());
+        assert!(result.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pinspec_arch() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["package", "arch", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::string("x86-64", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.arch.is_some());
+        let arch = result.1.arch.unwrap();
+        assert_eq!(arch, "x86-64");
+        assert!(result.1.branch.is_none());
+        assert!(result.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pinspec_branch() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["branch", "package", "arch", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("stable", Span::test_data()),
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::string("x86-64", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.arch.is_some());
+        let arch = result.1.arch.unwrap();
+        assert_eq!(arch, "x86-64");
+        assert!(result.1.branch.is_some());
+        let branch = result.1.branch.unwrap();
+        assert_eq!(branch, "stable");
+        assert!(result.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pinspec_wrong() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["branch", "package", "arch", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("stable", Span::test_data()),
+                Value::bool(false, Span::test_data()),
+                Value::string("x86-64", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn value_to_pinspec_wrong_fields() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+
+        let record = Record::from_raw_cols_vals(
+            ["branch", "package", "arch", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::bool(false, Span::test_data()),
+                Value::string("org.gtk.Gtk3theme.adw-gtk3", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+                Value::string("foo", Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let value = Value::record(record, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.0, "org.gtk.Gtk3theme.adw-gtk3");
+        assert!(result.1.arch.is_none());
+        assert!(result.1.branch.is_none());
+        assert!(result.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pinspec_not_record() {
+        let value = Value::bool(false, Span::test_data());
+
+        let result = value_to_pinspec(&value);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_no_runtime() {
+        let runtime = "org.gtk.Gtk3theme.adw-gtk3-dark";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_none());
+        assert!(res.1.arch.is_none());
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_no_runtime_arch() {
+        let runtime = "org.gtk.Gtk3theme.adw-gtk3-dark/x86-64/";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_none());
+        assert!(res.1.arch.is_some());
+        assert_eq!(res.1.arch.unwrap(), "x86-64");
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_no_runtime_branch() {
+        let runtime = "runtime/org.gtk.Gtk3theme.adw-gtk3-dark//stable";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_some());
+        assert_eq!(res.1.branch.unwrap(), "stable");
+        assert!(res.1.arch.is_none());
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_no_runtime_arch_branch() {
+        let runtime = "org.gtk.Gtk3theme.adw-gtk3-dark/x86-64/stable";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_some());
+        assert_eq!(res.1.branch.unwrap(), "stable");
+        assert!(res.1.arch.is_some());
+        assert_eq!(res.1.arch.unwrap(), "x86-64");
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_runtime() {
+        let runtime = "runtime/org.gtk.Gtk3theme.adw-gtk3-dark";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_none());
+        assert!(res.1.arch.is_none());
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_arch() {
+        let runtime = "runtime/org.gtk.Gtk3theme.adw-gtk3-dark/x86-64";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_none());
+        assert!(res.1.arch.is_some());
+        assert_eq!(res.1.arch.unwrap(), "x86-64");
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_branch() {
+        let runtime = "runtime/org.gtk.Gtk3theme.adw-gtk3-dark//stable";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_some());
+        assert_eq!(res.1.branch.unwrap(), "stable");
+        assert!(res.1.arch.is_none());
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn parse_runtime_format_arch_branch() {
+        let runtime = "runtime/org.gtk.Gtk3theme.adw-gtk3-dark/x86-64/stable";
+
+        let res = parse_runtime_format(runtime);
+
+        assert!(res.1.branch.is_some());
+        assert_eq!(res.1.branch.unwrap(), "stable");
+        assert!(res.1.arch.is_some());
+        assert_eq!(res.1.arch.unwrap(), "x86-64");
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_remote_ok() {
+        let value = Record::from_raw_cols_vals(
+            ["package", "url"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            ["a", "b"]
+                .into_iter()
+                .map(|a| Value::string(a, Span::test_data()))
+                .collect(),
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let value = Value::record(value, Span::test_data());
+
+        let res = extract_remote(&value);
+        let check = Some(("a".to_owned(), "b".to_owned()));
+
+        assert_eq!(check, res);
+    }
+
+    #[test]
+    fn value_to_remote_not_records() {
+        let value = Value::string("a", Span::test_data());
+        let res = extract_remote(&value);
+        let check = None;
+        assert_eq!(check, res);
+    }
+
+    #[test]
+    fn values_to_remote_not_package() {
+        let value = Record::from_raw_cols_vals(
+            ["pkg", "url"].into_iter().map(ToOwned::to_owned).collect(),
+            ["a", "b"]
+                .into_iter()
+                .map(|a| Value::string(a, Span::test_data()))
+                .collect(),
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let value = Value::record(value, Span::test_data());
+
+        let res = extract_remote(&value);
+        let check = None;
+        assert_eq!(check, res);
+    }
 }

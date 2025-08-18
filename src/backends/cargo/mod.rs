@@ -9,6 +9,15 @@ use crate::parser::Engine;
 
 use super::Backend;
 
+const PACKAGE_LIST_KEY: &str = "packages";
+const PACKAGE_KEY: &str = "package";
+const ALL_FEATURES_KEY: &str = "all_features";
+const NO_DEFAULT_FEATURES_KEY: &str = "no_default_features";
+const FEATURES_KEY: &str = "features";
+const GIT_REMOTE_KEY: &str = "git_remote";
+const HOOK_KEY: &str = "post_hook";
+const CRATE_INSTALLS_KEY: &str = "installs";
+
 #[derive(Clone, Debug)]
 pub struct CargoOpts {
     features: Box<[String]>,
@@ -26,9 +35,10 @@ pub struct Cargo {
 impl Backend for Cargo {
     fn new(value: &Record) -> Result<Self> {
         let packages = value
-            .get("packages")
-            .ok_or(anyhow!("Failed to get packages for Arch"))?
-            .as_list()?
+            .get(PACKAGE_LIST_KEY)
+            .ok_or(anyhow!("Failed to get packages for Cargo"))?
+            .as_list()
+            .map_err(|_| anyhow!("Packages not a list for Cargo"))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -107,52 +117,100 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let record = value.as_record()?;
 
     let package = record
-        .get("package")
+        .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
-        .as_str()?
+        .as_str()
+        .map_err(|_| anyhow!("Package name in {record:#?} is not a string"))?
         .to_owned();
 
     let all_features = record
-        .get("all_features")
-        .map(|value| value.as_bool().ok())
+        .get(ALL_FEATURES_KEY)
+        .map(|value| {
+            value.as_bool().ok().or_else(|| {
+                log::warn!("all_features in {record:#?} is not a boolean, ignoring");
+                None
+            })
+        })
         .flatten()
-        .unwrap_or(false);
+        .unwrap_or_else(|| {
+            log::info!("all_features not specified in {record:#?}, defaulting to false");
+            false
+        });
 
-    let no_default_features = record
-        .get("no_default_features")
-        .map(|value| value.as_bool().ok())
-        .flatten()
-        .unwrap_or(false)
-        && !all_features;
+    let no_default_features = if all_features {
+        log::info!("all_features specified; ignoring no_default_features if present");
+        false
+    } else {
+        record
+            .get(NO_DEFAULT_FEATURES_KEY)
+            .map(|value| {
+                value.as_bool().ok().or_else(|| {
+                    log::warn!("no_default_features in {record:#?} is not a boolean, ignoring");
+                    None
+                })
+            })
+            .flatten()
+            .unwrap_or_else(|| {
+                log::info!("no_default_features not specified in {record:#?}, defaulting to false");
+                false
+            })
+    };
 
     let features = if all_features || no_default_features {
+        log::info!(concat!(
+            "Either all_features or no_default_features",
+            "is specified, ignoring features if any"
+        ));
         Box::new([])
     } else {
         record
-            .get("features")
-            .map(|value| value.as_list().ok())
+            .get(FEATURES_KEY)
+            .map(|value| {
+                value.as_list().ok().or_else(|| {
+                    log::warn!("features in {record:#?} is not a list, ignoring");
+                    None
+                })
+            })
             .flatten()
             .map(|list| {
                 list.iter()
-                    .filter_map(|elem| elem.as_str().ok())
+                    .filter_map(|elem| {
+                        elem.as_str().ok().or_else(|| {
+                            log::warn!(
+                                "feature {elem:#?} in {record:#?} is not a string, ignoring"
+                            );
+                            None
+                        })
+                    })
                     .map(ToOwned::to_owned)
                     .collect::<Box<[_]>>()
             })
-            .unwrap_or(Box::new([]))
+            .unwrap_or_else(|| Box::new([]))
     };
 
     let git_remote = record
-        .get("git_remote")
-        .map(|value| value.as_str().ok())
+        .get(GIT_REMOTE_KEY)
+        .map(|value| {
+            value.as_str().ok().or_else(|| {
+                log::warn!("git_remote in {record:#?} is not a string, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
-        .get("post_hook")
-        .map(|closure| closure.as_closure().ok())
+        .get(HOOK_KEY)
+        .map(|closure| {
+            closure.as_closure().ok().or_else(|| {
+                log::warn!("post_hook in {record:#?} is not a closure, ignoring");
+                None
+            })
+        })
         .flatten()
         .map(|post_hook| {
             if !post_hook.captures.is_empty() {
+                log::warn!("closure {post_hook:#?} captures variables, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
@@ -178,18 +236,30 @@ fn get_installed_packages() -> HashSet<String> {
 
     let cratespec = match fs::read_to_string(&crate_file) {
         Ok(cratespec) => cratespec,
-        Err(_) => return HashSet::new(),
+        Err(_) => {
+            log::warn!(concat!(
+                "Error occured in reading crate file.",
+                "Assuming crates are not installed."
+            ));
+            return HashSet::new();
+        }
     };
 
     let cratespec: serde_json::Value = match serde_json::from_str(&cratespec) {
         Ok(cratespec) => cratespec,
-        Err(_) => return HashSet::new(),
+        Err(_) => {
+            log::warn!(concat!(
+                "Error occured in parsing json data.",
+                "Ignoring the contents"
+            ));
+            return HashSet::new();
+        }
     };
 
     log::info!("Found installed packages from crates2.json");
 
     let packages: HashSet<_> = cratespec
-        .get("installs")
+        .get(CRATE_INSTALLS_KEY)
         .map(|value| value.as_object())
         .flatten()
         .map(|value| {
@@ -235,6 +305,8 @@ fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
     )
 }
 
+// TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
+// rather than just check for the existence of the package and leave it at that
 fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String, CargoOpts)> {
     let spec = spec.as_object().ok_or(anyhow!("Malformed spec: {name}"))?;
 
@@ -292,4 +364,385 @@ fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String
             post_hook: None,
         },
     ))
+}
+
+#[cfg(test)]
+mod test {
+    use nu_protocol::{Id, Span, Value};
+
+    use super::*;
+
+    #[test]
+    fn cargo_backend_ok() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let pkglist = Value::list(
+            vec![Value::record(pkg_record, Span::test_data())],
+            Span::test_data(),
+        );
+        let record = Record::from_raw_cols_vals(
+            vec!["packages".to_owned()],
+            vec![pkglist],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let cargo = Cargo::new(&record);
+        assert!(cargo.is_ok());
+        let cargo = cargo.unwrap();
+        assert_eq!(cargo.packages.len(), 1);
+        assert!(cargo.packages.contains_key("foo"));
+    }
+
+    #[test]
+    fn cargo_backend_not_list() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let record = Record::from_raw_cols_vals(
+            vec!["packages".to_owned()],
+            vec![Value::record(pkg_record, Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let cargo = Cargo::new(&record);
+        assert!(cargo.is_err());
+    }
+
+    #[test]
+    fn cargo_backend_entry_missing() {
+        let pkg_record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let record = Record::from_raw_cols_vals(
+            vec!["packages".to_owned()],
+            vec![Value::record(pkg_record, Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let cargo = Cargo::new(&record);
+        assert!(cargo.is_err());
+    }
+
+    #[test]
+    fn value_to_pkgspec_no_opts() {
+        let record = Record::from_raw_cols_vals(
+            vec!["package".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_git() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "git_remote"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::string("git_remote_example", Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, Some("git_remote_example".to_owned()));
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_all_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "all_features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::bool(true, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, true);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_no_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "no_default_features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::bool(true, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, true);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_all_feats_overrides_no_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "no_default_features", "all_features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::bool(true, Span::test_data()),
+                Value::bool(true, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, true);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::list(
+                    vec![Value::string("bar", Span::test_data())],
+                    Span::test_data(),
+                ),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 1] = ["bar".to_owned()];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_no_feats_overrides_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "features", "no_default_features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::list(
+                    vec![Value::string("bar", Span::test_data())],
+                    Span::test_data(),
+                ),
+                Value::bool(true, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, true);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_all_feats_overrides_feats() {
+        let record = Record::from_raw_cols_vals(
+            ["package", "features", "all_features"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::list(
+                    vec![Value::string("bar", Span::test_data())],
+                    Span::test_data(),
+                ),
+                Value::bool(true, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, true);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
+
+    #[test]
+    fn value_to_pkgspec_closure() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![],
+        };
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_some());
+    }
+
+    #[test]
+    fn value_to_pkgspec_bound_closure() {
+        let closure = Closure {
+            block_id: Id::new(0),
+            captures: vec![(Id::new(1), Value::bool(true, Span::test_data()))],
+        };
+        let record = Record::from_raw_cols_vals(
+            ["package", "post_hook"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            vec![
+                Value::string("foo", Span::test_data()),
+                Value::closure(closure, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res.0, "foo".to_string());
+        let feats: [String; 0] = [];
+        assert_eq!(*res.1.features, feats);
+        assert_eq!(res.1.all_features, false);
+        assert_eq!(res.1.no_default_features, false);
+        assert_eq!(res.1.git_remote, None);
+        assert!(res.1.post_hook.is_none());
+    }
 }
