@@ -2,6 +2,7 @@ use anyhow::Result;
 pub use arch::Arch;
 pub use cargo::Cargo;
 pub use flatpak::Flatpak;
+pub use rustup::Rustup;
 use nu_protocol::Record;
 
 use crate::parser::Engine;
@@ -9,6 +10,7 @@ use crate::parser::Engine;
 mod arch;
 mod cargo;
 mod flatpak;
+mod rustup;
 
 pub enum Backends {
     Arch(Arch),
