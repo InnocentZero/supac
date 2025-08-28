@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use nu_protocol::Value;
 use nu_protocol::{Record, engine::Closure};
 
@@ -42,44 +42,44 @@ impl Backend for Flatpak {
     fn new(value: &Record) -> Result<Self> {
         let _remotes = value
             .get(REMOTE_LIST_KEY)
-            .map(|remotes| {
-                remotes.as_list().ok().or_else(|| {
-                    log::warn!("remotes {remotes:#?} was not a list, ignoring");
-                    None
-                })
+            .and_then(|remotes| remotes.as_list().ok())
+            .or_else(|| {
+                log::warn!("remote was not a list, ignoring");
+                None
             })
-            .flatten()
             .map(values_to_remotes)
             .unwrap_or_default();
 
         let pinned = value
             .get(PINNED_KEY)
-            .map(|pinned| {
-                pinned.as_list().ok().or_else(|| {
-                    log::warn!("Pinned {pinned:#?} was not a list, ignoring");
-                    None
-                })
+            .and_then(|pinned| pinned.as_list().ok())
+            .or_else(|| {
+                log::warn!("Pinned was not a list, ignoring");
+                None
             })
-            .flatten()
-            .map(|values| values.iter().map(value_to_pinspec).flatten().collect())
+            .map(values_to_pins)
             .unwrap_or_default();
 
-        let packages = value
+        let packages: HashMap<_, _> = value
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Flatpak"))?
-            .as_list()?
+            .as_list()
+            .map_err(|_| anyhow!("Failed to parse packages for Flatpak"))?
             .iter()
-            .map(value_to_pkgspec)
-            .collect::<Option<_>>()
-            .ok_or(anyhow!("Failed to parse packages for Flatpak"))?;
+            .flat_map(value_to_pkgspec)
+            .collect();
 
-        log::info!("Successfully parsed flatpak packages");
+        if packages.is_empty() {
+            bail!("Failed to parse packages for Flatpak! No packages found");
+        } else {
+            log::info!("Successfully parsed flatpak packages");
 
-        Ok(Flatpak {
-            _remotes,
-            pinned,
-            packages,
-        })
+            Ok(Flatpak {
+                _remotes,
+                pinned,
+                packages,
+            })
+        }
     }
 
     fn install(&self, engine: &mut Engine, _: &mut Record) -> Result<()> {
@@ -163,7 +163,8 @@ impl Flatpak {
         closures: &mut Vec<&'a Closure>,
     ) -> Result<()> {
         let installed_pins =
-            run_command_for_stdout(["flatpak", "pin", "--user"], Perms::User, true)?;
+            run_command_for_stdout(["flatpak", "pin", "--user"], Perms::User, true)
+                .map_err(|_| anyhow!("Failed to check for pinned packages"))?;
 
         let installed_pins: HashMap<_, _> = installed_pins
             .lines()
@@ -191,7 +192,14 @@ impl Flatpak {
             missing_pins
                 .iter()
                 .map(|s| [s.0, s.1, s.2].join("/"))
-                .map(|pin| run_command(["flatpak", "pin", "--user", pin.as_str()], Perms::User))
+                .map(|pin| {
+                    run_command(["flatpak", "pin", "--user", pin.as_str()], Perms::User).or_else(
+                        |_| {
+                            log::warn!("Failed to pin packages");
+                            Err(anyhow!(""))
+                        },
+                    )
+                })
                 .collect::<Result<()>>()?;
             log::info!("Pinned the missing runtime patterns");
 
@@ -200,7 +208,8 @@ impl Flatpak {
                     .into_iter()
                     .chain(missing_pins.iter().map(|(s, _, _)| *s)),
                 Perms::User,
-            )?;
+            )
+            .map_err(|_| anyhow!("Failed to install packages"))?;
             log::info!("Installed the missing runtime patterns");
         }
         Ok(())
@@ -228,7 +237,8 @@ impl Flatpak {
                     .into_iter()
                     .chain(free_packages.into_iter()),
                 Perms::User,
-            )?;
+            )
+            .map_err(|_| anyhow!("failed to install remote-agnostic packages"))?;
         }
 
         log::info!("Installed remote-agnostic packages");
@@ -249,7 +259,8 @@ impl Flatpak {
             run_command(
                 ["flatpak", "install", "--user", remote, package],
                 Perms::User,
-            )?;
+            )
+            .map_err(|_| anyhow!("Failed to install package {package} from remote {remote}"))?;
         }
 
         log::info!("Installed remote-specific packages");
@@ -262,6 +273,10 @@ fn values_to_remotes(remotes: &[Value]) -> HashMap<String, String> {
     remotes.iter().flat_map(extract_remote).collect()
 }
 
+fn values_to_pins(values: &[Value]) -> HashMap<String, PinOpts> {
+    values.iter().map(value_to_pinspec).flatten().collect()
+}
+
 fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {
     let record = value.as_record().ok().or_else(|| {
         log::warn!("pkgspec {value:#?} was not a record, ignoring");
@@ -271,46 +286,41 @@ fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {
     let name = record
         .get(PACKAGE_KEY)
         .or_else(|| {
-            log::warn!("record {record:#?} package key is missing, ignoring");
+            log::warn!("record package key is missing, ignoring");
             None
         })?
         .as_str()
         .ok()
         .or_else(|| {
-            log::warn!("record {record:#?} package key is not a string, ignoring");
+            log::warn!("record package key is not a string, ignoring");
             None
         })?
         .to_owned();
 
     let remote = record
         .get(REMOTE_KEY)
-        .map(|remote| {
-            remote.as_str().ok().or_else(|| {
-                log::warn!("record {record:#?} remote key is not a string, ignoring");
-                None
-            })
+        .and_then(|remote| remote.as_str().ok())
+        .or_else(|| {
+            log::warn!("record remote key is not a string, ignoring");
+            None
         })
-        .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
         .get(HOOK_KEY)
-        .map(|closure| {
-            closure.as_closure().ok().or_else(|| {
-                log::warn!("record {record:#?} hook is not a closure, ignoring");
-                None
-            })
+        .and_then(|closure| closure.as_closure().ok())
+        .or_else(|| {
+            log::warn!("record hook is not a closure, ignoring");
+            None
         })
-        .flatten()
-        .map(|post_hook| {
+        .and_then(|post_hook| {
             if !post_hook.captures.is_empty() {
                 log::warn!("closure {post_hook:#?} captures locals, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
             }
-        })
-        .flatten();
+        });
 
     Some((name, FlatpakOpts { remote, post_hook }))
 }
@@ -324,57 +334,50 @@ fn value_to_pinspec(value: &Value) -> Option<(String, PinOpts)> {
     let name = record
         .get(PACKAGE_KEY)
         .or_else(|| {
-            log::warn!("record {record:#?} package key missing, ignoring");
+            log::warn!("record package key missing, ignoring");
             None
         })?
         .as_str()
         .ok()
         .or_else(|| {
-            log::warn!("record {record:#?} package key is not a string, ignoring");
+            log::warn!("record package key is not a string, ignoring");
             None
         })?
         .to_owned();
 
     let branch = record
         .get(BRANCH_KEY)
-        .map(|branch| {
-            branch.as_str().ok().or_else(|| {
-                log::warn!("record {record:#?} branch is not a string, ignoring");
-                None
-            })
+        .and_then(|branch| branch.as_str().ok())
+        .or_else(|| {
+            log::warn!("record branch is not a string, ignoring");
+            None
         })
-        .flatten()
         .map(ToOwned::to_owned);
 
     let arch = record
         .get(ARCH_KEY)
-        .map(|arch| {
-            arch.as_str().ok().or_else(|| {
-                log::warn!("record {record:#?} arch is not a string, ignoring");
-                None
-            })
+        .and_then(|arch| arch.as_str().ok())
+        .or_else(|| {
+            log::warn!("record {record:#?} arch is not a string, ignoring");
+            None
         })
-        .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
         .get(HOOK_KEY)
-        .map(|closure| {
-            closure.as_closure().ok().or_else(|| {
-                log::warn!("record {record:#?} hook is not a closure, ignoring");
-                None
-            })
+        .and_then(|closure| closure.as_closure().ok())
+        .or_else(|| {
+            log::warn!("record {record:#?} hook is not a closure, ignoring");
+            None
         })
-        .flatten()
-        .map(|post_hook| {
+        .and_then(|post_hook| {
             if !post_hook.captures.is_empty() {
                 log::warn!("closure {post_hook:#?} captures variables, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
             }
-        })
-        .flatten();
+        });
 
     Some((
         name,
@@ -407,33 +410,33 @@ fn parse_runtime_format(runtime: &str) -> (&str, PinOpts) {
 
 fn extract_remote(remote: &Value) -> Option<(String, String)> {
     let record = remote.as_record().ok().or_else(|| {
-        log::warn!("remote value {remote:#?} was not a record, ignoring");
+        log::warn!("remote value was not a record, ignoring");
         None
     })?;
 
     let name = record
         .get(PACKAGE_KEY)
         .or_else(|| {
-            log::warn!("remote {remote:#?} name  was not found, ignoring");
+            log::warn!("remote name was not found, ignoring");
             None
         })?
         .as_str()
         .ok()
         .or_else(|| {
-            log::warn!("remote {remote:#?} name was not a string, ignoring");
+            log::warn!("remote name was not a string, ignoring");
             None
         })?;
 
     let url = record
         .get(URL_KEY)
         .or_else(|| {
-            log::warn!("remote {remote:#?} url  was not found, ignoring");
+            log::warn!("remote url was not found, ignoring");
             None
         })?
         .as_str()
         .ok()
         .or_else(|| {
-            log::warn!("remote {remote:#?} url was not a string, ignoring");
+            log::warn!("remote url was not a string, ignoring");
             None
         })?;
 

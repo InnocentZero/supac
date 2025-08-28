@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
 use nu_protocol::{Record, Value};
 
 use crate::{
@@ -43,15 +43,15 @@ impl Backend for Rustup {
             .map(values_to_pkgspec)
             .ok_or(anyhow!("Failed to parse rustup packages"))?;
 
+        log::info!("Successfully parsed rustup packages");
         Ok(Rustup { toolchains })
     }
 
     fn install(&self, engine: &mut Engine, config: &mut Record) -> anyhow::Result<()> {
         let installed_toolchains = get_installed_toolchains();
 
-        self.install_toolchains(installed_toolchains.as_ref());
-        self.install_missing(installed_toolchains.as_ref());
-
+        self.install_toolchains(installed_toolchains.as_ref())?;
+        self.install_missing(installed_toolchains.as_ref())?;
         Ok(())
     }
 
@@ -65,7 +65,9 @@ impl Backend for Rustup {
 }
 
 impl Rustup {
-    fn install_toolchains(&self, installed_toolchains: &[String]) {
+    fn install_toolchains(&self, installed_toolchains: &[String]) -> Result<()> {
+        let mut final_result = Err(anyhow!(""));
+
         let configured_toolchains = self.toolchains.keys();
 
         let missing_toolchains =
@@ -104,18 +106,22 @@ impl Rustup {
                 Ok(_) => log::info!("Successfully installed missing toolchain {toolchain}"),
                 Err(_) => log::warn!("Failed to install toolchain {toolchain}, proceeeding ahead"),
             }
+            final_result = final_result.and(result);
         }
+
+        final_result.map_err(|_| anyhow!("Failed to install any toolchain"))
     }
 
-    fn install_missing(&self, installed_toolchains: &[String]) {
+    fn install_missing(&self, installed_toolchains: &[String]) -> Result<()> {
         for toolchain in installed_toolchains {
             let (configured_targets, configured_components) =
                 self.toolchains.get(toolchain).unwrap();
 
-            install_missing_targets(toolchain, configured_targets.0.as_ref());
-
-            install_missing_components(toolchain, configured_components.0.as_ref());
+            install_missing_targets(toolchain, configured_targets.0.as_ref())?;
+            install_missing_components(toolchain, configured_components.0.as_ref())?;
         }
+
+        Ok(())
     }
 }
 
@@ -140,7 +146,7 @@ fn get_installed_toolchains() -> Box<[String]> {
         .collect()
 }
 
-fn install_missing_targets(toolchain: &String, configured_targets: &[String]) {
+fn install_missing_targets(toolchain: &String, configured_targets: &[String]) -> Result<()> {
     let installed_targets = run_command_for_stdout(
         [
             "rustup",
@@ -176,14 +182,10 @@ fn install_missing_targets(toolchain: &String, configured_targets: &[String]) {
             .chain(missing_components),
         Perms::User,
     )
-    .ok()
-    .or_else(|| {
-        log::warn!("rustup command to add components for {toolchain} failed!");
-        None
-    });
+    .map_err(|_| anyhow!("rustup command to add components for {toolchain} failed!"))
 }
 
-fn install_missing_components(toolchain: &String, configured_components: &[String]) {
+fn install_missing_components(toolchain: &String, configured_components: &[String]) -> Result<()> {
     let installed_components = run_command_for_stdout(
         [
             "rustup",
@@ -219,29 +221,25 @@ fn install_missing_components(toolchain: &String, configured_components: &[Strin
             .chain(missing_components),
         Perms::User,
     )
-    .ok()
-    .or_else(|| {
-        log::warn!("rustup command to add components for {toolchain} failed!");
-        None
-    });
+    .map_err(|_| anyhow!("rustup command to add components for {toolchain} failed!"))
 }
 
 fn value_to_fields(value: &Value) -> (Targets, Components) {
     match value.as_record() {
         Err(_) => {
-            log::warn!("parse error for {value:#?}; not a record");
+            log::warn!("parse error for value; not a record");
             (Targets(Box::new([])), Components(Box::new([])))
         }
         Ok(record) => {
             let components = record
                 .get(COMPONENT_LIST_KEY)
                 .or_else(|| {
-                    log::debug!("Components not present for {record:#?}");
+                    log::debug!("Components not present for record");
                     None
                 })
                 .and_then(|components| components.as_list().ok())
                 .or_else(|| {
-                    log::warn!("Component not a list for {record:#?}");
+                    log::warn!("Component not a list for record");
                     None
                 })
                 .map(parse_components)
@@ -250,12 +248,12 @@ fn value_to_fields(value: &Value) -> (Targets, Components) {
             let targets: Box<[_]> = record
                 .get(TARGET_LIST_KEY)
                 .or_else(|| {
-                    log::debug!("Targets not present for {record:#?}");
+                    log::debug!("Targets not present for record");
                     None
                 })
                 .and_then(|targets| targets.as_list().ok())
                 .or_else(|| {
-                    log::warn!("Target not a list for {record:#?}");
+                    log::warn!("Target not a list for record");
                     None
                 })
                 .map(|targets| targets.iter().flat_map(parse_target).collect())
@@ -271,7 +269,7 @@ fn parse_components(components: &[Value]) -> Box<[String]> {
         .iter()
         .flat_map(|comp| {
             comp.as_str().ok().or_else(|| {
-                log::debug!("Expected a string for {comp:#?}");
+                log::debug!("Expected a string for comp");
                 None
             })
         })
@@ -285,36 +283,36 @@ fn parse_target(target: &Value) -> Option<String> {
     let arch = target
         .get(ARCH_KEY)
         .or_else(|| {
-            log::warn!("Arch key missing for target {target:#?}");
+            log::warn!("Arch key missing for target");
             None
         })?
         .as_str()
         .ok()
         .or_else(|| {
-            log::warn!("Arch not a string for target {target:#?}");
+            log::warn!("Arch not a string for target");
             None
         })?;
     let vendor = target
         .get(VENDOR_KEY)
         .or_else(|| {
-            log::debug!("Vendor key is not present for target {target:#?}");
+            log::debug!("Vendor key is not present for target");
             None
         })
         .and_then(|vendor| vendor.as_str().ok())
         .or_else(|| {
-            log::warn!("Vendor is not a string for target {target:#?}");
+            log::warn!("Vendor is not a string for target");
             None
         })
         .unwrap_or("unknown");
     let os = target
         .get(OS_KEY)
         .or_else(|| {
-            log::debug!("Os key is not present for target {target:#?}");
+            log::debug!("Os key is not present for target");
             None
         })
         .and_then(|os| os.as_str().ok())
         .or_else(|| {
-            log::warn!("Os is not a string for target {target:#?}");
+            log::warn!("Os is not a string for target");
             None
         })
         .unwrap_or("none");
