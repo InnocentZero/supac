@@ -1,9 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 use nu_protocol::{Record, Value};
 
-use crate::parser::Engine;
+use crate::{
+    commands::{Perms, run_command, run_command_for_stdout},
+    parser::Engine,
+};
 
 use super::Backend;
 
@@ -44,7 +47,12 @@ impl Backend for Rustup {
     }
 
     fn install(&self, engine: &mut Engine, config: &mut Record) -> anyhow::Result<()> {
-        todo!()
+        let installed_toolchains = get_installed_toolchains();
+
+        self.install_toolchains(installed_toolchains.as_ref());
+        self.install_missing(installed_toolchains.as_ref());
+
+        Ok(())
     }
 
     fn remove(&self, config: &mut Record) -> anyhow::Result<()> {
@@ -56,11 +64,166 @@ impl Backend for Rustup {
     }
 }
 
+impl Rustup {
+    fn install_toolchains(&self, installed_toolchains: &[String]) {
+        let configured_toolchains = self.toolchains.keys();
+
+        let missing_toolchains =
+            configured_toolchains.filter(|toolchain| !installed_toolchains.contains(*toolchain));
+
+        for toolchain in missing_toolchains {
+            let (components, targets) = self.toolchains.get(toolchain).unwrap();
+
+            let components = Some(
+                ["--component"]
+                    .into_iter()
+                    .chain(components.0.iter().map(String::as_str)),
+            )
+            .into_iter()
+            .filter(|_| components.0.len() > 0)
+            .flatten();
+
+            let targets = Some(
+                ["--component"]
+                    .into_iter()
+                    .chain(targets.0.iter().map(String::as_str)),
+            )
+            .into_iter()
+            .filter(|_| targets.0.len() > 0)
+            .flatten();
+
+            let result = run_command(
+                ["rustup", "toolchain", "install"]
+                    .into_iter()
+                    .chain(components)
+                    .chain(targets),
+                Perms::User,
+            );
+
+            match result {
+                Ok(_) => log::info!("Successfully installed missing toolchain {toolchain}"),
+                Err(_) => log::warn!("Failed to install toolchain {toolchain}, proceeeding ahead"),
+            }
+        }
+    }
+
+    fn install_missing(&self, installed_toolchains: &[String]) {
+        for toolchain in installed_toolchains {
+            let (configured_targets, configured_components) =
+                self.toolchains.get(toolchain).unwrap();
+
+            install_missing_targets(toolchain, configured_targets.0.as_ref());
+
+            install_missing_components(toolchain, configured_components.0.as_ref());
+        }
+    }
+}
+
 fn values_to_pkgspec(record: &Record) -> HashMap<String, (Targets, Components)> {
     record
         .iter()
         .map(|(toolchain, value)| (toolchain.to_owned(), value_to_fields(value)))
         .collect()
+}
+
+fn get_installed_toolchains() -> Box<[String]> {
+    run_command_for_stdout(["rustup", "toolchain", "list"], Perms::User, true)
+        .ok()
+        .or_else(|| {
+            log::warn!("rustup command to find toolchains failed!");
+            None
+        })
+        .iter()
+        .flat_map(|output| output.lines())
+        .map(|toolchain| toolchain.split_once(' ').map_or(toolchain, |split| split.0))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn install_missing_targets(toolchain: &String, configured_targets: &[String]) {
+    let installed_targets = run_command_for_stdout(
+        [
+            "rustup",
+            "target",
+            "list",
+            "--toolchain",
+            toolchain,
+            "--installed",
+            "--quiet",
+        ],
+        Perms::User,
+        false,
+    )
+    .ok()
+    .or_else(|| {
+        log::warn!("rustup command to find targets for {toolchain} failed!");
+        None
+    })
+    .unwrap_or_default();
+    let installed_targets: Box<[_]> = installed_targets
+        .lines()
+        .map(|target| target.trim())
+        .collect();
+
+    let missing_components = configured_targets
+        .iter()
+        .filter(|component| !installed_targets.contains(&component.as_str()))
+        .map(String::as_str);
+
+    run_command(
+        ["rustup", "component", "add", "--toolchain", toolchain]
+            .into_iter()
+            .chain(missing_components),
+        Perms::User,
+    )
+    .ok()
+    .or_else(|| {
+        log::warn!("rustup command to add components for {toolchain} failed!");
+        None
+    });
+}
+
+fn install_missing_components(toolchain: &String, configured_components: &[String]) {
+    let installed_components = run_command_for_stdout(
+        [
+            "rustup",
+            "component",
+            "list",
+            "--toolchain",
+            toolchain,
+            "--installed",
+            "--quiet",
+        ],
+        Perms::User,
+        false,
+    )
+    .ok()
+    .or_else(|| {
+        log::warn!("rustup command to find components for {toolchain} failed!");
+        None
+    });
+
+    let missing_components = configured_components
+        .iter()
+        .filter(|component| {
+            !installed_components
+                .iter()
+                .flat_map(|output| output.lines())
+                .any(|comp| comp.starts_with(*component))
+        })
+        .map(String::as_str);
+
+    run_command(
+        ["rustup", "component", "add", "--toolchain", toolchain]
+            .into_iter()
+            .chain(missing_components),
+        Perms::User,
+    )
+    .ok()
+    .or_else(|| {
+        log::warn!("rustup command to add components for {toolchain} failed!");
+        None
+    });
 }
 
 fn value_to_fields(value: &Value) -> (Targets, Components) {
@@ -220,8 +383,54 @@ mod test {
 
     #[test]
     fn rustup_backend_not_record() {
+        let outer_record = Record::from_raw_cols_vals(
+            vec!["toolchains".to_owned()],
+            vec![Value::string("foo", Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let result = Rustup::new(&outer_record);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn values_to_fields_ok() {
+        let target = Record::from_raw_cols_vals(
+            ["arch", "vendor", "os"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect(),
+            ["AMD64", "unknown-elf", "linux"]
+                .into_iter()
+                .map(|string| Value::string(string, Span::test_data()))
+                .collect(),
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let target_list = vec![Value::record(target, Span::test_data())];
         let component_list = vec![Value::string("foo", Span::test_data())];
 
+        let inner_record = Record::from_raw_cols_vals(
+            vec!["components".to_owned(), "targets".to_owned()],
+            vec![
+                Value::list(component_list, Span::test_data()),
+                Value::list(target_list, Span::test_data()),
+            ],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+
+        let result = value_to_fields(&Value::record(inner_record, Span::test_data()));
+        assert_eq!(*result.0.0, ["AMD64-unknown-elf-linux"]);
+        assert_eq!(*result.1.0, ["foo"]);
+    }
+
+    #[test]
+    fn values_to_fields_components_missing() {
         let target = Record::from_raw_cols_vals(
             ["arch", "vendor", "os"]
                 .into_iter()
@@ -238,36 +447,70 @@ mod test {
         let target_list = vec![Value::record(target, Span::test_data())];
 
         let inner_record = Record::from_raw_cols_vals(
-            ["components", "targets"]
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect(),
-            vec![
-                Value::list(component_list, Span::test_data()),
-                Value::list(target_list, Span::test_data()),
-            ],
+            vec!["targets".to_owned()],
+            vec![Value::list(target_list, Span::test_data())],
             Span::test_data(),
             Span::test_data(),
         )
         .unwrap();
 
-        let toolchain_record = Record::from_raw_cols_vals(
-            vec!["toolchain1".to_owned()],
-            vec![Value::record(inner_record, Span::test_data())],
+        let result = value_to_fields(&Value::record(inner_record, Span::test_data()));
+        let res: [String; 0] = [];
+        assert_eq!(*result.1.0, res);
+    }
+
+    #[test]
+    fn values_to_fields_targets_missing() {
+        let component_list = vec![Value::string("foo", Span::test_data())];
+
+        let inner_record = Record::from_raw_cols_vals(
+            vec!["components".to_owned()],
+            vec![Value::list(component_list, Span::test_data())],
             Span::test_data(),
             Span::test_data(),
         )
         .unwrap();
 
-        let outer_record = Record::from_raw_cols_vals(
-            vec!["toolchains".to_owned()],
-            vec![Value::record(toolchain_record, Span::test_data())],
-            Span::test_data(),
-            Span::test_data(),
-        )
-        .unwrap();
+        let result = value_to_fields(&Value::record(inner_record, Span::test_data()));
+        let res: [String; 0] = [];
+        assert_eq!(*result.0.0, res);
+    }
 
-        let result = Rustup::new(&outer_record);
-        assert!(result.is_ok());
+    #[test]
+    fn values_to_fields_not_record() {
+        let result = value_to_fields(&Value::string("foo", Span::test_data()));
+        let res: [String; 0] = [];
+        assert_eq!(*result.0.0, res);
+        assert_eq!(*result.1.0, res);
+    }
+
+    #[test]
+    fn parse_components_ok() {
+        let components: Vec<_> = ["foo", "bar", "aaaa"]
+            .into_iter()
+            .map(|comp| Value::string(comp, Span::test_data()))
+            .collect();
+
+        let result = parse_components(&components);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "foo");
+        assert_eq!(result[1], "bar");
+        assert_eq!(result[2], "aaaa");
+    }
+
+    #[test]
+    fn parse_components_bad() {
+        let mut components: Vec<_> = ["foo", "bar", "aaaa"]
+            .into_iter()
+            .map(|comp| Value::string(comp, Span::test_data()))
+            .collect();
+
+        components.push(Value::bool(true, Span::test_data()));
+
+        let result = parse_components(&components);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "foo");
+        assert_eq!(result[1], "bar");
+        assert_eq!(result[2], "aaaa");
     }
 }
