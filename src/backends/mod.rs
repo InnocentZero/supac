@@ -12,6 +12,7 @@ mod cargo;
 mod flatpak;
 mod rustup;
 
+#[derive(Debug)]
 pub enum Backends {
     Arch(Arch),
     Flatpak(Flatpak),
@@ -59,8 +60,7 @@ macro_rules! backend_parse {
         [$(
             {let packages = $packages
                 .get(stringify!($backend))
-                .map(|package_struct| package_struct.as_record().ok())
-                .flatten();
+                .and_then(|package_struct| package_struct.as_record().ok());
 
             match packages {
                 Some(packages) =>

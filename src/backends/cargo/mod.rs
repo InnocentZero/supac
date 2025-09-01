@@ -120,20 +120,19 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
         .as_str()
-        .map_err(|_| anyhow!("Package name in {record:#?} is not a string"))?
+        .map_err(|_| anyhow!("Package name in record is not a string"))?
         .to_owned();
 
     let all_features = record
         .get(ALL_FEATURES_KEY)
-        .map(|value| {
+        .and_then(|value| {
             value.as_bool().ok().or_else(|| {
-                log::warn!("all_features in {record:#?} is not a boolean, ignoring");
+                log::warn!("all_features in record is not a boolean, ignoring");
                 None
             })
         })
-        .flatten()
         .unwrap_or_else(|| {
-            log::info!("all_features not specified in {record:#?}, defaulting to false");
+            log::info!("all_features not specified in record, defaulting to false");
             false
         });
 
@@ -143,42 +142,37 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     } else {
         record
             .get(NO_DEFAULT_FEATURES_KEY)
-            .map(|value| {
+            .and_then(|value| {
                 value.as_bool().ok().or_else(|| {
-                    log::warn!("no_default_features in {record:#?} is not a boolean, ignoring");
+                    log::warn!("no_default_features in record is not a boolean, ignoring");
                     None
                 })
             })
-            .flatten()
             .unwrap_or_else(|| {
-                log::info!("no_default_features not specified in {record:#?}, defaulting to false");
+                log::info!("no_default_features not specified in record, defaulting to false");
                 false
             })
     };
 
     let features = if all_features || no_default_features {
-        log::info!(concat!(
-            "Either all_features or no_default_features",
-            "is specified, ignoring features if any"
-        ));
+        log::info!(
+            "Either all_features or no_default_features is specified, ignoring features if any"
+        );
         Box::new([])
     } else {
         record
             .get(FEATURES_KEY)
-            .map(|value| {
+            .and_then(|value| {
                 value.as_list().ok().or_else(|| {
-                    log::warn!("features in {record:#?} is not a list, ignoring");
+                    log::warn!("features in record is not a list, ignoring");
                     None
                 })
             })
-            .flatten()
             .map(|list| {
                 list.iter()
                     .filter_map(|elem| {
                         elem.as_str().ok().or_else(|| {
-                            log::warn!(
-                                "feature {elem:#?} in {record:#?} is not a string, ignoring"
-                            );
+                            log::warn!("feature in record is not a string, ignoring");
                             None
                         })
                     })
@@ -190,33 +184,30 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
 
     let git_remote = record
         .get(GIT_REMOTE_KEY)
-        .map(|value| {
+        .and_then(|value| {
             value.as_str().ok().or_else(|| {
-                log::warn!("git_remote in {record:#?} is not a string, ignoring");
+                log::warn!("git_remote in record is not a string, ignoring");
                 None
             })
         })
-        .flatten()
         .map(ToOwned::to_owned);
 
     let post_hook = record
         .get(HOOK_KEY)
-        .map(|closure| {
+        .and_then(|closure| {
             closure.as_closure().ok().or_else(|| {
-                log::warn!("post_hook in {record:#?} is not a closure, ignoring");
+                log::warn!("post_hook in record is not a closure, ignoring");
                 None
             })
         })
-        .flatten()
-        .map(|post_hook| {
+        .and_then(|post_hook| {
             if !post_hook.captures.is_empty() {
-                log::warn!("closure {post_hook:#?} captures variables, ignoring");
+                log::warn!("closure captures variables, ignoring");
                 None
             } else {
                 Some(post_hook.to_owned())
             }
-        })
-        .flatten();
+        });
 
     Ok((
         package,
@@ -237,10 +228,7 @@ fn get_installed_packages() -> HashSet<String> {
     let cratespec = match fs::read_to_string(&crate_file) {
         Ok(cratespec) => cratespec,
         Err(_) => {
-            log::warn!(concat!(
-                "Error occured in reading crate file.",
-                "Assuming crates are not installed."
-            ));
+            log::warn!("Error occured in reading crate file. Assuming crates are not installed.");
             return HashSet::new();
         }
     };
@@ -248,10 +236,7 @@ fn get_installed_packages() -> HashSet<String> {
     let cratespec: serde_json::Value = match serde_json::from_str(&cratespec) {
         Ok(cratespec) => cratespec,
         Err(_) => {
-            log::warn!(concat!(
-                "Error occured in parsing json data.",
-                "Ignoring the contents"
-            ));
+            log::warn!("Error occured in parsing json data. Ignoring the contents");
             return HashSet::new();
         }
     };
@@ -260,8 +245,11 @@ fn get_installed_packages() -> HashSet<String> {
 
     let packages: HashSet<_> = cratespec
         .get(CRATE_INSTALLS_KEY)
-        .map(|value| value.as_object())
-        .flatten()
+        .or_else(|| {
+            log::warn!("Malformed cratespec contents! Ignoring");
+            None
+        })
+        .and_then(|value| value.as_object())
         .map(|value| {
             value
                 .keys()

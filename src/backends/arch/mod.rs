@@ -14,7 +14,7 @@ const PACKAGE_KEY: &str = "package";
 const HOOK_KEY: &str = "post_hook";
 
 const DEFAULT_PACKAGE_MANAGER: &str = "paru";
-const ARCH_PACKAGE_MANGER_KEY: &str = "arch_package_manager";
+const ARCH_PACKAGE_MANAGER_KEY: &str = "arch_package_manager";
 
 #[derive(Clone, Debug)]
 pub struct Arch {
@@ -65,12 +65,8 @@ impl Backend for Arch {
 
         log::info!("Successfully found arch group packages");
 
-        let configured_packages: HashSet<String> = groups
-            .lines()
-            .map(group_packages)
-            .flatten()
-            .flatten()
-            .collect();
+        let configured_packages: HashSet<String> =
+            groups.lines().flat_map(group_packages).flatten().collect();
 
         let missing = &mut configured
             .into_iter()
@@ -124,14 +120,13 @@ impl Backend for Arch {
 
         let configured_packages: Box<[_]> = groups
             .lines()
-            .map(|group| {
+            .flat_map(|group| {
                 if configured.remove(group) {
                     find_group_packages(group, &package_manager).ok()
                 } else {
                     None
                 }
             })
-            .flatten()
             .flatten()
             .collect();
 
@@ -211,22 +206,20 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
 
     let post_hook = record
         .get(HOOK_KEY)
-        .map(|closure| {
+        .and_then(|closure| {
             closure.as_closure().ok().or_else(|| {
-                log::warn!("The closure {closure:#?} was not a closure! Ignoring");
+                log::warn!("The closure was not a closure! Ignoring");
                 None
             })
         })
-        .flatten()
-        .map(|post_hook| {
+        .and_then(|post_hook| {
             if !post_hook.captures.is_empty() {
-                log::warn!("Closure {post_hook:#?} was trying to access a local variable");
+                log::warn!("Closure was trying to access a local variable");
                 None
             } else {
                 Some(post_hook.to_owned())
             }
-        })
-        .flatten();
+        });
 
     Ok((package, post_hook))
 }
@@ -263,10 +256,17 @@ fn find_group_packages(group: &str, package_manager: &str) -> Result<Box<[String
 
 fn get_package_manager(config: &Record) -> &str {
     config
-        .get(ARCH_PACKAGE_MANGER_KEY)
-        .map(|paru| paru.as_str().ok())
-        .flatten()
-        .unwrap_or(DEFAULT_PACKAGE_MANAGER)
+        .get(ARCH_PACKAGE_MANAGER_KEY)
+        .and_then(|paru| {
+            paru.as_str().ok().or_else(|| {
+                log::warn!("The package manager was not a string! Ignoring");
+                None
+            })
+        })
+        .unwrap_or_else(|| {
+            log::info!("No package manager mentioned in config. Defaulting to paru");
+            DEFAULT_PACKAGE_MANAGER
+        })
 }
 
 #[cfg(test)]

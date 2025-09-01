@@ -274,7 +274,7 @@ fn values_to_remotes(remotes: &[Value]) -> HashMap<String, String> {
 }
 
 fn values_to_pins(values: &[Value]) -> HashMap<String, PinOpts> {
-    values.iter().map(value_to_pinspec).flatten().collect()
+    values.iter().flat_map(value_to_pinspec).collect()
 }
 
 fn value_to_pkgspec(value: &Value) -> Option<(String, FlatpakOpts)> {

@@ -82,7 +82,7 @@ fn main() -> io::Result<()> {
 
     let config_file = args
         .config_dir
-        .map(|path| Ok(path))
+        .map(Ok)
         .unwrap_or_else(|| {
             info!("config path not supplied through arguments. Reading from default path");
             config::get_config_path()
@@ -127,7 +127,7 @@ fn main() -> io::Result<()> {
         error!("{e:?}");
         e
     })?;
-    let mut config_engine = Engine::new(&config_dir);
+    let mut config_engine = Engine::new(config_dir);
     let mut config = config_engine.fetch(&config_contents).map_err(|e| {
         error!("Error encountered while parsing config spec");
         error!("{e}");
@@ -143,7 +143,7 @@ fn main() -> io::Result<()> {
         e
     })?;
 
-    let mut engine = Engine::new(&config_dir);
+    let mut engine = Engine::new(config_dir);
 
     let packages = engine.fetch(&contents).map_err(|e| {
         error!("Error encountered while parsing package spec");
