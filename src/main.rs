@@ -8,6 +8,7 @@ use backends::Backend;
 use backends::Backends;
 use backends::Cargo;
 use backends::Flatpak;
+use backends::Rustup;
 use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
@@ -155,7 +156,7 @@ fn main() -> io::Result<()> {
 
     let res = backends
         .iter_mut()
-        .map(|backend_opt| {
+        .flat_map(|backend_opt| {
             backend_opt.as_mut().map(|backend| match &args.subcommand {
                 SubCommand::Clean(_clean_command) => backend.remove(&mut config),
                 SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
@@ -164,7 +165,6 @@ fn main() -> io::Result<()> {
                 SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
             })
         })
-        .flatten()
         .collect::<anyhow::Result<()>>();
 
     res.map_err(|e| {

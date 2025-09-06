@@ -32,13 +32,14 @@ impl Backend for Arch {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
+        log::debug!("Successfully parsed rustup packages");
         Ok(Arch { packages })
     }
 
     fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()> {
         let package_manager = get_package_manager(config);
 
-        let installed = find_packages(package_manager)?;
+        let installed = get_installed_packages(package_manager)?;
 
         let mut configured: HashSet<_> = self.packages.keys().map(String::as_str).collect();
 
@@ -46,69 +47,63 @@ impl Backend for Arch {
             [package_manager, "--sync", "--quiet", "--groups"],
             Perms::User,
             false,
-        )?;
+        )
+        .map_err(|_| anyhow!("Failed to get "))?;
 
         let mut closures = Vec::new();
 
-        let group_packages = |group| {
-            if configured.remove(group) {
-                self.packages
-                    .get(group)
-                    .unwrap()
-                    .as_ref()
-                    .map(|closure| closures.push(closure));
-                find_group_packages(group, package_manager).ok()
-            } else {
-                None
-            }
-        };
-
-        log::info!("Successfully found arch group packages");
-
-        let configured_packages: HashSet<String> =
-            groups.lines().flat_map(group_packages).flatten().collect();
+        let configured_group_packages: Box<_> = groups
+            .lines()
+            .filter(|group| configured.remove(group))
+            .inspect(|group| {
+                if let Some(closure) = self.packages.get(*group).unwrap().as_ref() {
+                    closures.push(closure);
+                }
+            })
+            .map(|group| get_installed_group_packages(group, package_manager))
+            .collect::<Result<_>>()?;
 
         let missing = &mut configured
             .into_iter()
-            .map(|package| {
-                self.packages
-                    .get(package)
-                    .unwrap()
-                    .as_ref()
-                    .map(|closure| closures.push(&closure));
-                package
+            .inspect(|package| {
+                if let Some(closure) = self.packages.get(*package).unwrap().as_ref() {
+                    closures.push(closure);
+                }
             })
-            .chain(configured_packages.iter().map(String::as_str))
+            .chain(
+                configured_group_packages
+                    .iter()
+                    .flatten()
+                    .map(String::as_str),
+            )
             .filter(|package| !installed.contains(*package))
             .peekable();
 
-        log::info!("Successfully found missing arch packages");
+        log::debug!("Successfully found all missing arch packages");
 
         if missing.peek().is_none() {
+            log::debug!("Nothing to install!");
             return Ok(());
         }
-
-        log::info!("Successfully checked for no arch missing packages");
 
         run_command(
             [package_manager, "--sync"].into_iter().chain(missing),
             Perms::User,
-        )?;
-
-        log::info!("Successfully installed arch packages");
+        )
+        .inspect(|_| log::debug!("Successfully installed arch packages"))
+        .map_err(|_| anyhow!("Failed to install packages"))?;
 
         closures
             .iter()
-            .map(|closure| engine.execute_closure(closure))
-            .collect()
+            .try_for_each(|closure| engine.execute_closure(closure))
+            .inspect(|_| log::debug!("Successfully executed all closures"))
+            .map_err(|_| anyhow!("Failed to execute closures"))
     }
 
     fn remove(&self, config: &mut Record) -> Result<()> {
         let package_manager = get_package_manager(config);
 
-        let installed = find_packages(package_manager)?;
-
-        log::info!("Found installed packages");
+        let installed = get_installed_packages(package_manager)?;
 
         let mut configured: HashSet<_> = self.packages.keys().map(String::as_str).collect();
 
@@ -120,28 +115,22 @@ impl Backend for Arch {
 
         let configured_packages: Box<[_]> = groups
             .lines()
-            .flat_map(|group| {
-                if configured.remove(group) {
-                    find_group_packages(group, &package_manager).ok()
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect();
+            .filter(|group| configured.remove(group))
+            .map(|group| get_installed_group_packages(group, package_manager))
+            .collect::<Result<_>>()?;
 
         let configured_packages: HashSet<_> = configured_packages
             .into_iter()
+            .flatten()
             .chain(configured.iter().map(|package| package.to_string()))
             .collect();
 
         let mut extra = installed.difference(&configured_packages).peekable();
 
         if extra.peek().is_none() {
-            log::info!("No extra packages to remove!");
+            log::debug!("No extra packages to remove!");
             Ok(())
         } else {
-            log::info!("Removing extra packages");
             run_command(
                 [
                     package_manager,
@@ -154,13 +143,15 @@ impl Backend for Arch {
                 .chain(extra.map(String::as_str)),
                 Perms::User,
             )
+            .inspect(|_| log::debug!("Removed extra packages"))
+            .map_err(|_| anyhow!("Failed to remove packages"))
         }
     }
 
     fn clean_cache(&self, config: &Record) -> Result<()> {
         let package_manager = get_package_manager(config);
 
-        let unused = match run_command_for_stdout(
+        let unused = run_command_for_stdout(
             [
                 package_manager,
                 "--query",
@@ -170,14 +161,18 @@ impl Backend for Arch {
             ],
             Perms::User,
             true,
-        ) {
+        );
+
+        // arch package managers fail when there are no packages
+        let unused = match unused {
             Ok(unused) => unused,
             Err(_) => {
+                log::debug!("No unused dependencies to remove");
                 return Ok(());
             }
         };
 
-        log::info!("Found unused packages, Removing unused dependencies");
+        log::debug!("Found unused packages, Removing unused dependencies");
 
         run_command(
             [
@@ -191,11 +186,15 @@ impl Backend for Arch {
             .chain(unused.lines()),
             Perms::User,
         )
+        .inspect(|_| log::debug!("Successfully removed all unused dependencies"))
+        .map_err(|_| anyhow!("Failed to clean cache for arch"))
     }
 }
 
 fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
-    let record = value.as_record()?;
+    let record = value
+        .as_record()
+        .map_err(|_| anyhow!("The package-spec is not a record!"))?;
 
     let package = record
         .get(PACKAGE_KEY)
@@ -208,7 +207,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
         .get(HOOK_KEY)
         .and_then(|closure| {
             closure.as_closure().ok().or_else(|| {
-                log::warn!("The closure was not a closure! Ignoring");
+                log::warn!("Closure supplied in {package} was not a closure! Ignoring");
                 None
             })
         })
@@ -224,34 +223,38 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
     Ok((package, post_hook))
 }
 
-fn find_packages(package_manager: &str) -> Result<HashSet<String>> {
-    run_command_for_stdout(
+fn get_installed_packages(package_manager: &str) -> Result<HashSet<String>> {
+    let packages = run_command_for_stdout(
         [package_manager, "--query", "--explicit", "--quiet"],
         Perms::User,
         false,
     )
-    .map(|packages| {
-        packages
-            .lines()
-            .map(str::trim)
-            .map(ToOwned::to_owned)
-            .collect()
-    })
+    .map_err(|_| anyhow!("Failed to get installed packages for {package_manager}"))?;
+
+    let packages = packages
+        .lines()
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .collect();
+
+    Ok(packages)
 }
 
-fn find_group_packages(group: &str, package_manager: &str) -> Result<Box<[String]>> {
-    run_command_for_stdout(
+fn get_installed_group_packages(group: &str, package_manager: &str) -> Result<Box<[String]>> {
+    let packages = run_command_for_stdout(
         [package_manager, "--sync", "--groups", "--quiet", group],
         Perms::User,
         false,
     )
-    .map(|packages| {
-        packages
-            .lines()
-            .map(str::trim)
-            .map(ToOwned::to_owned)
-            .collect()
-    })
+    .map_err(|_| anyhow!("failed to get package groups with {package_manager}"))?;
+
+    let packages = packages
+        .lines()
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .collect();
+
+    Ok(packages)
 }
 
 fn get_package_manager(config: &Record) -> &str {

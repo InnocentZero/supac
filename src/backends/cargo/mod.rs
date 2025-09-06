@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{Perms, run_command, run_command_for_stdout};
@@ -43,57 +43,49 @@ impl Backend for Cargo {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
-        log::info!("Parsed cargo packages from spec");
+        log::debug!("Parsed cargo packages from spec");
 
         Ok(Cargo { packages })
     }
 
     fn install(&self, engine: &mut Engine, _config: &mut Record) -> Result<()> {
-        let packages = get_installed_packages();
-        log::info!("Successfully parsed installed packages");
+        let packages = get_installed_packages()?;
 
         let configured_packages = &self.packages;
-        let missing_packages = configured_packages
+        let mut missing_packages = configured_packages
             .iter()
             .filter(|(name, _)| !packages.contains(*name));
 
-        log::info!("Successfully found missing packages");
-
         let mut post_hooks = Vec::new();
 
-        missing_packages
-            .map(|(name, spec)| {
-                spec.post_hook.as_ref().map(|hook| post_hooks.push(hook));
-                install_package(name, spec)
-            })
-            .collect::<Result<()>>()?;
+        missing_packages.try_for_each(|(name, spec)| {
+            if let Some(hook) = spec.post_hook.as_ref() {
+                post_hooks.push(hook);
+            }
+            install_package(name, spec)
+        })?;
 
-        log::info!("Successfully installed missing packages");
+        log::debug!("Successfully installed missing packages");
 
-        let result = post_hooks
+        post_hooks
             .into_iter()
-            .map(|hook| engine.execute_closure(hook))
-            .collect();
-
-        log::info!("Successfully executed all the post hooks");
-
-        result
+            .try_for_each(|hook| engine.execute_closure(hook))
+            .inspect(|_| log::debug!("Successfully executed all the post hooks"))
     }
 
     fn remove(&self, _config: &mut Record) -> Result<()> {
-        let packages = get_installed_packages();
-        log::info!("Successfully parsed installed packages");
+        let packages = get_installed_packages()?;
+        log::debug!("Successfully parsed installed packages");
 
         let configured_packages = &self.packages;
         packages
             .into_iter()
             .filter(|package| !configured_packages.contains_key(package))
-            .map(|package| run_command(["cargo", "uninstall", package.as_str()], Perms::User))
-            .collect::<Result<()>>()?;
-
-        log::info!("Successfully removed extraneous packages");
-
-        Ok(())
+            .try_for_each(|package| {
+                run_command(["cargo", "uninstall", package.as_str()], Perms::User)
+                    .map_err(|_| anyhow!("Failed to uninstall {package}"))
+            })
+            .inspect(|_| log::debug!("Successfully removed extraneous packages"))
     }
 
     fn clean_cache(&self, _config: &Record) -> Result<()> {
@@ -101,7 +93,8 @@ impl Backend for Cargo {
 
         match stdout {
             Ok(_) => {
-                run_command(["cargo", "cache", "--autoclean"], Perms::User)?;
+                run_command(["cargo", "cache", "--autoclean"], Perms::User)
+                    .map_err(|_| anyhow!("Failed to remove cache"))?;
                 log::info!("Removed cargo's cache");
             }
             Err(_) => {
@@ -114,7 +107,9 @@ impl Backend for Cargo {
 }
 
 fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
-    let record = value.as_record()?;
+    let record = value
+        .as_record()
+        .map_err(|_| anyhow!("Failed to parse value"))?;
 
     let package = record
         .get(PACKAGE_KEY)
@@ -123,91 +118,70 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         .map_err(|_| anyhow!("Package name in record is not a string"))?
         .to_owned();
 
-    let all_features = record
-        .get(ALL_FEATURES_KEY)
-        .and_then(|value| {
-            value.as_bool().ok().or_else(|| {
-                log::warn!("all_features in record is not a boolean, ignoring");
-                None
-            })
-        })
-        .unwrap_or_else(|| {
-            log::info!("all_features not specified in record, defaulting to false");
+    let all_features = match record.get(ALL_FEATURES_KEY) {
+        Some(all_features) => all_features
+            .as_bool()
+            .map_err(|_| anyhow!("all_features in {package} is not a boolean"))?,
+        None => {
+            log::info!("all_features not specified in {package}, defaulting to false");
             false
-        });
-
-    let no_default_features = if all_features {
-        log::info!("all_features specified; ignoring no_default_features if present");
-        false
-    } else {
-        record
-            .get(NO_DEFAULT_FEATURES_KEY)
-            .and_then(|value| {
-                value.as_bool().ok().or_else(|| {
-                    log::warn!("no_default_features in record is not a boolean, ignoring");
-                    None
-                })
-            })
-            .unwrap_or_else(|| {
-                log::info!("no_default_features not specified in record, defaulting to false");
-                false
-            })
+        }
     };
 
-    let features = if all_features || no_default_features {
-        log::info!(
-            "Either all_features or no_default_features is specified, ignoring features if any"
-        );
-        Box::new([])
-    } else {
-        record
-            .get(FEATURES_KEY)
-            .and_then(|value| {
-                value.as_list().ok().or_else(|| {
-                    log::warn!("features in record is not a list, ignoring");
-                    None
-                })
-            })
-            .map(|list| {
-                list.iter()
-                    .filter_map(|elem| {
-                        elem.as_str().ok().or_else(|| {
-                            log::warn!("feature in record is not a string, ignoring");
-                            None
-                        })
-                    })
+    let no_default_features = record
+        .get(NO_DEFAULT_FEATURES_KEY)
+        .filter(|_| !all_features);
+    let no_default_features = match no_default_features {
+        Some(no_default_features) => no_default_features
+            .as_bool()
+            .map_err(|_| anyhow!("no_default_features in {package} is not a boolean"))?,
+        None => {
+            log::info!("no_default_features not specified in {package}, defaulting to false");
+            false
+        }
+    };
+
+    let features = record
+        .get(FEATURES_KEY)
+        .filter(|_| !all_features && !no_default_features);
+    let features = match features {
+        Some(features) => features
+            .as_list()
+            .map_err(|_| anyhow!("features in {package} is not a list"))?
+            .iter()
+            .map(|elem| {
+                elem.as_str()
                     .map(ToOwned::to_owned)
-                    .collect::<Box<[_]>>()
+                    .map_err(|_| anyhow!("Element in {package} features not a string"))
             })
-            .unwrap_or_else(|| Box::new([]))
+            .collect::<Result<Box<[_]>>>()?,
+        None => Box::new([]),
     };
 
-    let git_remote = record
-        .get(GIT_REMOTE_KEY)
-        .and_then(|value| {
-            value.as_str().ok().or_else(|| {
-                log::warn!("git_remote in record is not a string, ignoring");
-                None
-            })
-        })
-        .map(ToOwned::to_owned);
+    let git_remote = match record.get(GIT_REMOTE_KEY) {
+        Some(git_remote) => Some(
+            git_remote
+                .as_str()
+                .map_err(|_| anyhow!("Failed to parse git remote for {package}"))?
+                .to_owned(),
+        ),
+        None => None,
+    };
 
-    let post_hook = record
-        .get(HOOK_KEY)
-        .and_then(|closure| {
-            closure.as_closure().ok().or_else(|| {
-                log::warn!("post_hook in record is not a closure, ignoring");
-                None
-            })
-        })
-        .and_then(|post_hook| {
-            if !post_hook.captures.is_empty() {
-                log::warn!("closure captures variables, ignoring");
+    let post_hook = match record.get(HOOK_KEY) {
+        Some(closure) => {
+            let closure = closure
+                .as_closure()
+                .map_err(|_| anyhow!("closure for {package} not a closure, ignoring"))?;
+            if !closure.captures.is_empty() {
+                log::warn!("closure for {package} captures variables");
                 None
             } else {
-                Some(post_hook.to_owned())
+                Some(closure.to_owned())
             }
-        });
+        }
+        None => None,
+    };
 
     Ok((
         package,
@@ -221,7 +195,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     ))
 }
 
-fn get_installed_packages() -> HashSet<String> {
+fn get_installed_packages() -> Result<HashSet<String>> {
     let crate_file =
         std::env::var("CARGO_HOME").unwrap_or("~/.cargo".to_owned()) + "/.crates2.json";
 
@@ -229,68 +203,54 @@ fn get_installed_packages() -> HashSet<String> {
         Ok(cratespec) => cratespec,
         Err(_) => {
             log::warn!("Error occured in reading crate file. Assuming crates are not installed.");
-            return HashSet::new();
+            return Ok(HashSet::new());
         }
     };
 
-    let cratespec: serde_json::Value = match serde_json::from_str(&cratespec) {
-        Ok(cratespec) => cratespec,
-        Err(_) => {
-            log::warn!("Error occured in parsing json data. Ignoring the contents");
-            return HashSet::new();
-        }
-    };
-
-    log::info!("Found installed packages from crates2.json");
+    let cratespec: serde_json::Value =
+        serde_json::from_str(&cratespec).with_context(|| "error occured in parsing json data")?;
 
     let packages: HashSet<_> = cratespec
         .get(CRATE_INSTALLS_KEY)
-        .or_else(|| {
-            log::warn!("Malformed cratespec contents! Ignoring");
-            None
-        })
-        .and_then(|value| value.as_object())
-        .map(|value| {
-            value
-                .keys()
-                .filter_map(|package| package.split_once(' ').map(|package| package.0))
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or(HashSet::new());
+        .ok_or_else(|| anyhow!("Malformed cratespec contents! Can't find the required installs"))?
+        .as_object()
+        .ok_or_else(|| anyhow!("Malformed cratespec contents! Installs field not a JSON object"))?
+        .keys()
+        .filter_map(|package| package.split_once(' ').map(|package| package.0))
+        .map(ToOwned::to_owned)
+        .collect();
 
-    packages
+    Ok(packages)
 }
 
 fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
-    run_command(
-        ["cargo", "install"]
-            .into_iter()
-            .chain(
-                Some("--git")
-                    .into_iter()
-                    .filter(|_| spec.git_remote.is_some()),
-            )
-            .chain(spec.git_remote.as_deref())
-            .chain(
-                Some("--all-features")
-                    .into_iter()
-                    .filter(|_| spec.all_features),
-            )
-            .chain(
-                Some("--no-default-features")
-                    .into_iter()
-                    .filter(|_| spec.no_default_features),
-            )
-            .chain(
-                Some("--features")
-                    .into_iter()
-                    .filter(|_| !spec.features.is_empty()),
-            )
-            .chain(spec.features.iter().map(String::as_str))
-            .chain([name]),
-        Perms::User,
-    )
+    let git = Some("--git")
+        .into_iter()
+        .chain(spec.git_remote.as_deref())
+        .filter(|_| spec.git_remote.is_some());
+
+    let all_features = Some("--all-features")
+        .into_iter()
+        .filter(|_| spec.all_features);
+
+    let no_default_features = Some("--no-default-features")
+        .into_iter()
+        .filter(|_| spec.no_default_features);
+
+    let features = Some("--features")
+        .into_iter()
+        .chain(spec.features.iter().map(String::as_str))
+        .filter(|_| !spec.features.is_empty());
+
+    let command = ["cargo", "install"]
+        .into_iter()
+        .chain(git)
+        .chain(all_features)
+        .chain(no_default_features)
+        .chain(features)
+        .chain([name]);
+
+    run_command(command, Perms::User).map_err(|_| anyhow!("Failed to install {name}"))
 }
 
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
@@ -447,8 +407,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(!res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -476,8 +436,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(!res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, Some("git_remote_example".to_owned()));
         assert!(res.1.post_hook.is_none());
     }
@@ -505,8 +465,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, true);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -534,8 +494,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, true);
+        assert!(!res.1.all_features);
+        assert!(res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -564,8 +524,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, true);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -596,8 +556,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 1] = ["bar".to_owned()];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(!res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -629,8 +589,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, true);
+        assert!(!res.1.all_features);
+        assert!(res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -662,8 +622,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, true);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
@@ -695,8 +655,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(!res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_some());
     }
@@ -728,8 +688,8 @@ mod test {
         assert_eq!(res.0, "foo".to_string());
         let feats: [String; 0] = [];
         assert_eq!(*res.1.features, feats);
-        assert_eq!(res.1.all_features, false);
-        assert_eq!(res.1.no_default_features, false);
+        assert!(!res.1.all_features);
+        assert!(!res.1.no_default_features);
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_none());
     }
