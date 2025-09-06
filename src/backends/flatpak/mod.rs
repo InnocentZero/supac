@@ -65,7 +65,7 @@ impl Backend for Flatpak {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
-        log::debug!("Successfully parsed flatpak packages");
+        log::info!("Successfully parsed flatpak packages");
 
         Ok(Flatpak {
             _remotes: remotes,
@@ -87,13 +87,13 @@ impl Backend for Flatpak {
 
         self.install_pins(&installed_packages, &mut closures)?;
         self.install_packages(&installed_packages, &mut closures)?;
-        log::debug!("Successfully installed flatpak packages");
+        log::info!("Successfully installed flatpak packages");
 
         closures
             .iter()
             .try_for_each(|closure| engine.execute_closure(closure))
+            .inspect(|_| log::info!("Successful flatpak closure execution"))
             .map_err(|_| anyhow!("Failed to execute post hooks"))
-            .inspect(|_| log::debug!("Successful flatpak closure execution"))
     }
 
     fn remove(&self, _: &mut Record) -> Result<()> {
@@ -109,7 +109,7 @@ impl Backend for Flatpak {
             .try_for_each(|(pin, _)| {
                 run_command(["flatpak", "pin", "--remove", "--user", pin], Perms::User)
             })
-            .inspect(|_| log::debug!("Removed extra flatpak pins"))
+            .inspect(|_| log::info!("Removed extra flatpak pins"))
             .map_err(|_| anyhow!("Failed to remove pinned packages"))?;
 
         let installed_packages = run_command_for_stdout(
@@ -135,7 +135,7 @@ impl Backend for Flatpak {
                 .chain(extra_packages),
             Perms::User,
         )
-        .inspect(|_| log::debug!("Successfully removed extra flatpak packages"))
+        .inspect(|_| log::info!("Successfully removed extra flatpak packages"))
         .map_err(|_| anyhow!("Failed to remove extra packages"))
     }
 
@@ -144,7 +144,7 @@ impl Backend for Flatpak {
             ["flatpak", "remove", "--delete-data", "--unused", "--user"],
             Perms::User,
         )
-        .inspect(|_| log::debug!("Successfully removed unused flatpak packages"))
+        .inspect(|_| log::info!("Successfully removed unused flatpak packages"))
         .map_err(|_| anyhow!("Failed to clean cache"))
     }
 }
@@ -199,7 +199,7 @@ impl Flatpak {
                     run_command(["flatpak", "pin", "--user", pin.as_str()], Perms::User)
                         .map_err(|_| anyhow!("Failed to pin packages"))
                 })
-                .inspect(|_| log::info!("Pinned the missing runtime patterns"))?;
+                .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
 
             run_command(
                 ["flatpak", "install", "--user"]
@@ -207,7 +207,7 @@ impl Flatpak {
                     .chain(missing_pins.iter().map(|(s, _, _)| s.as_str())),
                 Perms::User,
             )
-            .inspect(|_| log::info!("Installed the missing runtime patterns"))
+            .inspect(|_| log::debug!("Installed the missing runtime patterns"))
             .map_err(|_| anyhow!("Failed to install packages"))?;
         }
 
@@ -242,7 +242,7 @@ impl Flatpak {
             .map_err(|_| anyhow!("failed to install remote-agnostic packages"))?;
         }
 
-        log::info!("Installed remote-agnostic packages");
+        log::debug!("Installed remote-agnostic packages");
 
         let ref_packages = self
             .packages
@@ -266,7 +266,7 @@ impl Flatpak {
             .map_err(|_| anyhow!("Failed to install package {package} from remote {remote}"))?;
         }
 
-        log::info!("Installed remote-specific packages");
+        log::debug!("Installed remote-specific packages");
 
         Ok(())
     }

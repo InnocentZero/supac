@@ -43,7 +43,7 @@ impl Backend for Cargo {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
-        log::debug!("Parsed cargo packages from spec");
+        log::info!("Parsed cargo packages from spec");
 
         Ok(Cargo { packages })
     }
@@ -65,17 +65,17 @@ impl Backend for Cargo {
             install_package(name, spec)
         })?;
 
-        log::debug!("Successfully installed missing packages");
+        log::info!("Successfully installed missing packages");
 
         post_hooks
             .into_iter()
             .try_for_each(|hook| engine.execute_closure(hook))
-            .inspect(|_| log::debug!("Successfully executed all the post hooks"))
+            .inspect(|_| log::info!("Successfully executed all the post hooks"))
     }
 
     fn remove(&self, _config: &mut Record) -> Result<()> {
         let packages = get_installed_packages()?;
-        log::debug!("Successfully parsed installed packages");
+        log::info!("Successfully parsed installed packages");
 
         let configured_packages = &self.packages;
         packages
@@ -85,7 +85,7 @@ impl Backend for Cargo {
                 run_command(["cargo", "uninstall", package.as_str()], Perms::User)
                     .map_err(|_| anyhow!("Failed to uninstall {package}"))
             })
-            .inspect(|_| log::debug!("Successfully removed extraneous packages"))
+            .inspect(|_| log::info!("Successfully removed extraneous packages"))
     }
 
     fn clean_cache(&self, _config: &Record) -> Result<()> {
@@ -95,7 +95,7 @@ impl Backend for Cargo {
             Ok(_) => {
                 run_command(["cargo", "cache", "--autoclean"], Perms::User)
                     .map_err(|_| anyhow!("Failed to remove cache"))?;
-                log::info!("Removed cargo's cache");
+                log::debug!("Removed cargo's cache");
             }
             Err(_) => {
                 log::warn!("cargo-cache not found");
@@ -123,7 +123,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
             .as_bool()
             .map_err(|_| anyhow!("all_features in {package} is not a boolean"))?,
         None => {
-            log::info!("all_features not specified in {package}, defaulting to false");
+            log::debug!("all_features not specified in {package}, defaulting to false");
             false
         }
     };
@@ -136,7 +136,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
             .as_bool()
             .map_err(|_| anyhow!("no_default_features in {package} is not a boolean"))?,
         None => {
-            log::info!("no_default_features not specified in {package}, defaulting to false");
+            log::debug!("no_default_features not specified in {package}, defaulting to false");
             false
         }
     };

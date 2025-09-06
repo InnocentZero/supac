@@ -32,7 +32,7 @@ impl Backend for Arch {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
-        log::debug!("Successfully parsed rustup packages");
+        log::info!("Successfully parsed arch packages");
         Ok(Arch { packages })
     }
 
@@ -79,10 +79,10 @@ impl Backend for Arch {
             .filter(|package| !installed.contains(*package))
             .peekable();
 
-        log::debug!("Successfully found all missing arch packages");
+        log::info!("Successfully found all missing arch packages");
 
         if missing.peek().is_none() {
-            log::debug!("Nothing to install!");
+            log::info!("Nothing to install!");
             return Ok(());
         }
 
@@ -90,13 +90,13 @@ impl Backend for Arch {
             [package_manager, "--sync"].into_iter().chain(missing),
             Perms::User,
         )
-        .inspect(|_| log::debug!("Successfully installed arch packages"))
+        .inspect(|_| log::info!("Successfully installed arch packages"))
         .map_err(|_| anyhow!("Failed to install packages"))?;
 
         closures
             .iter()
             .try_for_each(|closure| engine.execute_closure(closure))
-            .inspect(|_| log::debug!("Successfully executed all closures"))
+            .inspect(|_| log::info!("Successfully executed all closures"))
             .map_err(|_| anyhow!("Failed to execute closures"))
     }
 
@@ -128,7 +128,7 @@ impl Backend for Arch {
         let mut extra = installed.difference(&configured_packages).peekable();
 
         if extra.peek().is_none() {
-            log::debug!("No extra packages to remove!");
+            log::info!("No extra packages to remove!");
             Ok(())
         } else {
             run_command(
@@ -143,7 +143,7 @@ impl Backend for Arch {
                 .chain(extra.map(String::as_str)),
                 Perms::User,
             )
-            .inspect(|_| log::debug!("Removed extra packages"))
+            .inspect(|_| log::info!("Removed extra packages"))
             .map_err(|_| anyhow!("Failed to remove packages"))
         }
     }
@@ -167,12 +167,12 @@ impl Backend for Arch {
         let unused = match unused {
             Ok(unused) => unused,
             Err(_) => {
-                log::debug!("No unused dependencies to remove");
+                log::info!("No unused dependencies to remove");
                 return Ok(());
             }
         };
 
-        log::debug!("Found unused packages, Removing unused dependencies");
+        log::info!("Found unused packages, Removing unused dependencies");
 
         run_command(
             [
@@ -186,7 +186,7 @@ impl Backend for Arch {
             .chain(unused.lines()),
             Perms::User,
         )
-        .inspect(|_| log::debug!("Successfully removed all unused dependencies"))
+        .inspect(|_| log::info!("Successfully removed all unused dependencies"))
         .map_err(|_| anyhow!("Failed to clean cache for arch"))
     }
 }
@@ -267,7 +267,7 @@ fn get_package_manager(config: &Record) -> &str {
             })
         })
         .unwrap_or_else(|| {
-            log::info!("No package manager mentioned in config. Defaulting to paru");
+            log::debug!("No package manager mentioned in config. Defaulting to paru");
             DEFAULT_PACKAGE_MANAGER
         })
 }

@@ -47,7 +47,7 @@ impl Backend for Rustup {
 
         let toolchains = values_to_pkgspec(toolchains)?;
 
-        log::debug!("Successfully parsed rustup packages");
+        log::info!("Successfully parsed rustup packages");
         Ok(Rustup { toolchains })
     }
 
@@ -55,10 +55,10 @@ impl Backend for Rustup {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.install_toolchains(installed_toolchains.as_ref())?;
-        log::debug!("Installed missing toolchains");
+        log::info!("Installed missing toolchains");
 
         self.install_missing(installed_toolchains.as_ref())?;
-        log::debug!("Installed missing components and targets");
+        log::info!("Installed missing components and targets");
 
         Ok(())
     }
@@ -67,10 +67,10 @@ impl Backend for Rustup {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.remove_toolchains(installed_toolchains.as_ref())?;
-        log::debug!("Removed extra toolchains");
+        log::info!("Removed extra toolchains");
 
         self.remove_extra(installed_toolchains.as_ref())?;
-        log::debug!("Removed extra components and targets");
+        log::info!("Removed extra components and targets");
 
         Ok(())
     }
@@ -93,14 +93,14 @@ impl Rustup {
             })
             .map(|toolchain| (toolchain, self.toolchains.get(toolchain).unwrap()))
             .try_for_each(|(toolchain, spec)| install_missing_toolchain(toolchain, spec))
-            .inspect(|_| log::info!("Successfully installed all the missing toolchains"))
+            .inspect(|_| log::debug!("Successfully installed all the missing toolchains"))
     }
 
     fn install_missing(&self, installed_toolchains: &[String]) -> Result<()> {
-        let configured_toolchains = installed_toolchains.iter().filter(|toolchain| {
+        let configured_toolchains = installed_toolchains.iter().filter_map(|toolchain| {
             self.toolchains
                 .keys()
-                .any(|configured| toolchain.starts_with(configured))
+                .find(|configured| toolchain.starts_with(*configured))
         });
 
         for toolchain in configured_toolchains {
@@ -128,7 +128,7 @@ impl Rustup {
             .peekable();
 
         if extra_toolchains.peek().is_none() {
-            log::info!("No extra toolchains to remove!");
+            log::debug!("No extra toolchains to remove!");
             Ok(())
         } else {
             run_command(
@@ -137,7 +137,7 @@ impl Rustup {
                     .chain(extra_toolchains),
                 Perms::User,
             )
-            .map(|_| log::info!("Successfully removed unused toolchains"))
+            .map(|_| log::debug!("Successfully removed unused toolchains"))
             .map_err(|_| anyhow!("Failed to remove toolchains"))
         }
     }
@@ -151,17 +151,13 @@ impl Rustup {
                 configured_toolchains
                     .keys()
                     .find(|configured| toolchain.starts_with(*configured))
-            })
-            .map(String::as_str);
+            });
 
         for toolchain in present_toolchains {
             let toolchain_spec = self.toolchains.get(toolchain).unwrap();
 
             remove_extra_targets(toolchain, &toolchain_spec.targets)?;
-            log::info!("Removed extra targets for {toolchain}");
-
             remove_extra_components(toolchain, &toolchain_spec.components)?;
-            log::info!("Removed extra components for {toolchain}");
         }
 
         Ok(())
@@ -219,7 +215,7 @@ fn install_missing_toolchain(toolchain: &str, toolchain_spec: &ToolchainSpec) ->
             .chain(targets),
         Perms::User,
     )
-    .inspect(|_| log::info!("Successfully installed missing toolchain {toolchain}"))
+    .inspect(|_| log::debug!("Successfully installed missing toolchain {toolchain}"))
     .map_err(|_| anyhow!("Failed to install toolchain {toolchain}"))
 }
 
@@ -233,11 +229,11 @@ fn install_missing_targets(toolchain: &String, configured_targets: &[String]) ->
         .peekable();
 
     if missing_targets.peek().is_none() {
-        log::info!("No targets left to install for {toolchain}!");
+        log::debug!("No targets left to install for {toolchain}!");
         Ok(())
     } else {
         run_command(
-            ["rustup", "component", "add", "--toolchain", toolchain]
+            ["rustup", "target", "add", "--toolchain", toolchain]
                 .into_iter()
                 .chain(missing_targets),
             Perms::User,
@@ -261,7 +257,7 @@ fn install_missing_components(toolchain: &String, configured_components: &[Strin
         .peekable();
 
     if missing_components.peek().is_none() {
-        log::info!("No components left to install for {toolchain}");
+        log::debug!("No components left to install for {toolchain}");
         Ok(())
     } else {
         run_command(
@@ -284,7 +280,7 @@ fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Resul
         .peekable();
 
     if extra_targets.peek().is_none() {
-        log::info!("No extra targets to remove for {toolchain}!");
+        log::debug!("No extra targets to remove for {toolchain}!");
         Ok(())
     } else {
         run_command(
@@ -293,6 +289,7 @@ fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Resul
                 .chain(extra_targets),
             Perms::User,
         )
+        .inspect(|_| log::debug!("Remove extra targets for {toolchain}"))
         .map_err(|_| anyhow!("Failed to remove unused targets for {toolchain}!"))
     }
 }
@@ -313,7 +310,7 @@ fn remove_extra_components(toolchain: &str, configured_components: &[String]) ->
         .peekable();
 
     if extra_components.peek().is_none() {
-        log::info!("No extra components to remove for {toolchain}!");
+        log::debug!("No extra components to remove for {toolchain}!");
         Ok(())
     } else {
         run_command(
@@ -322,6 +319,7 @@ fn remove_extra_components(toolchain: &str, configured_components: &[String]) ->
                 .chain(extra_components),
             Perms::User,
         )
+        .inspect(|_| log::debug!("Removed extra components for {toolchain}"))
         .map_err(|_| anyhow!("rustup command to remove components for {toolchain} failed!"))
     }
 }
@@ -340,7 +338,7 @@ fn value_to_toolchainspec(toolchain: &str, value: &Value) -> Result<ToolchainSpe
             parse_components(components)?
         }
         None => {
-            log::info!("No components specified in {toolchain}, using defaults");
+            log::debug!("No components specified in {toolchain}, using defaults");
             Box::new([])
         }
     };
@@ -356,7 +354,7 @@ fn value_to_toolchainspec(toolchain: &str, value: &Value) -> Result<ToolchainSpe
                 .collect::<Result<_>>()?
         }
         None => {
-            log::info!("No targets specified in {toolchain}, using defaults");
+            log::debug!("No targets specified in {toolchain}, using defaults");
             Box::new([])
         }
     };
@@ -449,7 +447,7 @@ fn parse_target(target: &Value, toolchain: &str) -> Result<String> {
                 .map_err(|_| anyhow!("Vendor specified is not a string for {arch} in {toolchain}"))
         })
         .unwrap_or_else(|| {
-            log::info!("Using default value for vendor in {toolchain}'s {arch}");
+            log::debug!("Using default value for vendor in {toolchain}'s {arch}");
             Ok("unknown")
         })?;
 
@@ -460,7 +458,7 @@ fn parse_target(target: &Value, toolchain: &str) -> Result<String> {
                 .map_err(|_| anyhow!("OS specified is not a string for {arch} in {toolchain}"))
         })
         .unwrap_or_else(|| {
-            log::info!("Using default value for vendor in {toolchain}'s {arch}");
+            log::debug!("Using default value for vendor in {toolchain}'s {arch}");
             Ok("none")
         })?;
 
