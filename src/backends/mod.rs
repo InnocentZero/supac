@@ -2,8 +2,8 @@ use anyhow::Result;
 pub use arch::Arch;
 pub use cargo::Cargo;
 pub use flatpak::Flatpak;
-pub use rustup::Rustup;
 use nu_protocol::Record;
+pub use rustup::Rustup;
 
 use crate::parser::Engine;
 
@@ -17,6 +17,7 @@ pub enum Backends {
     Arch(Arch),
     Flatpak(Flatpak),
     Cargo(Cargo),
+    Rustup(Rustup),
 }
 
 pub trait Backend {
@@ -34,6 +35,7 @@ impl Backends {
             Backends::Arch(arch) => arch.install(engine, config),
             Backends::Flatpak(flatpak) => flatpak.install(engine, config),
             Backends::Cargo(cargo) => cargo.install(engine, config),
+            Backends::Rustup(rustup) => rustup.install(engine, config),
         }
     }
 
@@ -42,6 +44,7 @@ impl Backends {
             Backends::Arch(arch) => arch.remove(config),
             Backends::Flatpak(flatpak) => flatpak.remove(config),
             Backends::Cargo(cargo) => cargo.remove(config),
+            Backends::Rustup(rustup) => rustup.remove(config),
         }
     }
 
@@ -50,6 +53,7 @@ impl Backends {
             Backends::Arch(arch) => arch.clean_cache(config),
             Backends::Flatpak(flatpak) => flatpak.clean_cache(config),
             Backends::Cargo(cargo) => cargo.clean_cache(config),
+            Backends::Rustup(rustup) => rustup.clean_cache(config),
         }
     }
 }
@@ -82,6 +86,6 @@ macro_rules! backend_parse {
 #[macro_export]
 macro_rules! parse_all_backends {
     ($packages:ident) => {
-        backend_parse!($packages, Arch, Flatpak, Cargo)
+        backend_parse!($packages, Arch, Flatpak, Cargo, Rustup)
     };
 }
