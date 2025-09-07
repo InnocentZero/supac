@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use log::{error, trace};
 use nu_protocol::{Record, Span};
 
-const KV_PAIRS: [(&'static str, &'static str); 1] = [("arch_package_manager", "paru")];
+// TODO: Change and implement using nu serde or json serde
+const KV_PAIRS: [(&str, &str); 1] = [("arch_package_manager", "paru")];
 
 pub fn get_config_path() -> Result<PathBuf> {
     let config_dir = if let Ok(config_dir) = env::var("SUPAC_HOME") {
@@ -65,7 +66,7 @@ pub fn write_default_config(config_path: &PathBuf) -> Result<()> {
         .map(|(opt, value)| {
             config_spec.push_str(&opt);
             config_spec.push_str(": ");
-            config_spec.push_str(&value.as_str().unwrap());
+            config_spec.push_str(value.as_str().unwrap());
             config_spec.push('\n');
         })
         .collect::<Vec<()>>();
