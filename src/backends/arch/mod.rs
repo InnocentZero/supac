@@ -37,7 +37,7 @@ impl Backend for Arch {
     }
 
     fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()> {
-        let package_manager = get_package_manager(config);
+        let (package_manager, perms) = get_package_manager(config)?;
 
         let installed = get_installed_packages(package_manager)?;
 
@@ -45,7 +45,7 @@ impl Backend for Arch {
 
         let groups = run_command_for_stdout(
             [package_manager, "--sync", "--quiet", "--groups"],
-            Perms::User,
+            perms,
             false,
         )
         .map_err(|e| anyhow!("Failed to get group packages\n {e}"))?;
@@ -101,7 +101,7 @@ impl Backend for Arch {
     }
 
     fn remove(&self, config: &mut Record) -> Result<()> {
-        let package_manager = get_package_manager(config);
+        let (package_manager, perms) = get_package_manager(config)?;
 
         let installed = get_installed_packages(package_manager)?;
 
@@ -109,7 +109,7 @@ impl Backend for Arch {
 
         let groups = run_command_for_stdout(
             [package_manager, "--sync", "--quiet", "--groups"],
-            Perms::User,
+            perms,
             false,
         )?;
 
@@ -149,7 +149,7 @@ impl Backend for Arch {
     }
 
     fn clean_cache(&self, config: &Record) -> Result<()> {
-        let package_manager = get_package_manager(config);
+        let (package_manager, perms) = get_package_manager(config)?;
 
         let unused = run_command_for_stdout(
             [
@@ -159,7 +159,7 @@ impl Backend for Arch {
                 "--unrequired",
                 "--quiet",
             ],
-            Perms::User,
+            perms,
             true,
         );
 
@@ -257,19 +257,19 @@ fn get_installed_group_packages(group: &str, package_manager: &str) -> Result<Bo
     Ok(packages)
 }
 
-fn get_package_manager(config: &Record) -> &str {
-    config
-        .get(ARCH_PACKAGE_MANAGER_KEY)
-        .and_then(|paru| {
-            paru.as_str().ok().or_else(|| {
-                log::warn!("The package manager was not a string! Ignoring");
-                None
-            })
-        })
-        .unwrap_or_else(|| {
-            log::debug!("No package manager mentioned in config. Defaulting to paru");
-            DEFAULT_PACKAGE_MANAGER
-        })
+fn get_package_manager(config: &Record) -> Result<(&str, Perms)> {
+    let pacman = match config.get(ARCH_PACKAGE_MANAGER_KEY) {
+        Some(pacman) => pacman.as_str().map_err(|e| {
+            anyhow!("Failed to parse config, arch package manager is not a string\n {e}")
+        })?,
+        None => DEFAULT_PACKAGE_MANAGER,
+    };
+
+    if pacman == "pacman" {
+        Ok((pacman, Perms::Root))
+    } else {
+        Ok((pacman, Perms::User))
+    }
 }
 
 #[cfg(test)]
@@ -563,7 +563,10 @@ mod test {
             Record::from_raw_cols_vals(vec![], vec![], Span::test_data(), Span::test_data())
                 .unwrap();
         let res = get_package_manager(&config);
-        assert_eq!(res, "paru");
+        assert!(res.is_ok());
+        let (pm, perms) = res.unwrap();
+        assert_eq!(pm, "paru");
+        assert_eq!(perms, Perms::User);
     }
 
     #[test]
@@ -576,7 +579,10 @@ mod test {
         )
         .unwrap();
         let res = get_package_manager(&config);
-        assert_eq!(res, "paru");
+        assert!(res.is_ok());
+        let (pm, perms) = res.unwrap();
+        assert_eq!(pm, "paru");
+        assert_eq!(perms, Perms::User);
     }
 
     #[test]
@@ -589,6 +595,22 @@ mod test {
         )
         .unwrap();
         let res = get_package_manager(&config);
-        assert_eq!(res, "pacman");
+        assert!(res.is_ok());
+        let (pm, perms) = res.unwrap();
+        assert_eq!(pm, "pacman");
+        assert_eq!(perms, Perms::Root);
+    }
+
+    #[test]
+    fn pkgmgr_wrong() {
+        let config = Record::from_raw_cols_vals(
+            vec!["arch_package_manager".to_owned()],
+            vec![Value::bool(true, Span::test_data())],
+            Span::test_data(),
+            Span::test_data(),
+        )
+        .unwrap();
+        let res = get_package_manager(&config);
+        assert!(res.is_err());
     }
 }

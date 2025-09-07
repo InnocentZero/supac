@@ -2,7 +2,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, anyhow};
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Perms {
     Root,
     User,
