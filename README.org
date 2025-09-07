@@ -16,6 +16,7 @@ Right now the following package managers are supported:
 - Arch Linux (any of your package managers capable of elevating permissions by themselves)
 - Flatpak (user mode configuration)
 - Cargo
+- rustup
 
 ** Checklist of package managers
 :PROPERTIES:
@@ -24,7 +25,7 @@ Right now the following package managers are supported:
 
 This is the order in which I wish to include package manager support:
 
-- rustup
+- +rustup+
 - uv
 - opam
 - npm
@@ -61,7 +62,7 @@ A brief rundown:
 - For =Cargo=, again, a list of package records, with each record labelled by its package name,
   an optional git remote, an optional post hook, optionally specifying the following:
   - =all_features=: whether the binary should be installed with all the optional opt-in features
-  - =no_default__features=: whether the binary should be installed without any feature whatsoever
+  - =no_default_features=: whether the binary should be installed without any feature whatsoever
   - =features=: a list of features that the binary supports that it should be installed with
 - For =Flatpak=, it parses three subrecords:
   - =Pinned=: This is not compulsory, but this is a list of pinned runtimes, optionally specifying
@@ -69,6 +70,9 @@ A brief rundown:
   - =Packages=: Like the other two, this specifies a list of package records. These may optionally
     contain the remote from which to install, and a post hook
   - =Remotes=: Useless as of now, will be useful once the =rebuild= command is released
+- For =Rustup=, it parses a record, where each field's name is the toolchain that you wish to
+  install, and the entries are a list of target triples and a list of components. All targets
+  must be explicitly stated. Default components can be skipped.
 
 Anything except the package name is not needed in a package specification. The file ~config.nu~
 in the same directory should return a record giving out the configuration. As of now, only one
