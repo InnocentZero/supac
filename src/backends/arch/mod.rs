@@ -27,7 +27,7 @@ impl Backend for Arch {
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Arch"))?
             .as_list()
-            .map_err(|_| anyhow!("The package list in Arch is not a list"))?
+            .map_err(|e| anyhow!("The package list in Arch is not a list\n {e}"))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -48,7 +48,7 @@ impl Backend for Arch {
             Perms::User,
             false,
         )
-        .map_err(|_| anyhow!("Failed to get "))?;
+        .map_err(|e| anyhow!("Failed to get group packages\n {e}"))?;
 
         let mut closures = Vec::new();
 
@@ -91,13 +91,13 @@ impl Backend for Arch {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully installed arch packages"))
-        .map_err(|_| anyhow!("Failed to install packages"))?;
+        .map_err(|e| anyhow!("Failed to install packages\n {e}"))?;
 
         closures
             .iter()
             .try_for_each(|closure| engine.execute_closure(closure))
             .inspect(|_| log::info!("Successfully executed all closures"))
-            .map_err(|_| anyhow!("Failed to execute closures"))
+            .map_err(|e| anyhow!("Failed to execute closures\n {e}"))
     }
 
     fn remove(&self, config: &mut Record) -> Result<()> {
@@ -144,7 +144,7 @@ impl Backend for Arch {
                 Perms::User,
             )
             .inspect(|_| log::info!("Removed extra packages"))
-            .map_err(|_| anyhow!("Failed to remove packages"))
+            .map_err(|e| anyhow!("Failed to remove packages\n {e}"))
         }
     }
 
@@ -187,20 +187,20 @@ impl Backend for Arch {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully removed all unused dependencies"))
-        .map_err(|_| anyhow!("Failed to clean cache for arch"))
+        .map_err(|e| anyhow!("Failed to clean cache for arch\n {e}"))
     }
 }
 
 fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
     let record = value
         .as_record()
-        .map_err(|_| anyhow!("The package-spec is not a record!"))?;
+        .map_err(|e| anyhow!("The package-spec is not a record\n {e}"))?;
 
     let package = record
         .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
         .as_str()
-        .map_err(|_| anyhow!("The package was not a string"))?
+        .map_err(|e| anyhow!("The package was not a string\n {e}"))?
         .to_owned();
 
     let post_hook = record
@@ -229,7 +229,7 @@ fn get_installed_packages(package_manager: &str) -> Result<HashSet<String>> {
         Perms::User,
         false,
     )
-    .map_err(|_| anyhow!("Failed to get installed packages for {package_manager}"))?;
+    .map_err(|e| anyhow!("Failed to get installed packages for {package_manager}\n {e}"))?;
 
     let packages = packages
         .lines()
@@ -246,7 +246,7 @@ fn get_installed_group_packages(group: &str, package_manager: &str) -> Result<Bo
         Perms::User,
         false,
     )
-    .map_err(|_| anyhow!("failed to get package groups with {package_manager}"))?;
+    .map_err(|e| anyhow!("failed to get package groups with {package_manager}\n {e}"))?;
 
     let packages = packages
         .lines()

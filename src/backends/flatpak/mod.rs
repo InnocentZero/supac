@@ -44,7 +44,7 @@ impl Backend for Flatpak {
             Some(remotes) => remotes
                 .as_list()
                 .map(values_to_remotes)
-                .map_err(|_| anyhow!("Remotes specified were not a list"))?,
+                .map_err(|e| anyhow!("Remotes specified were not a list\n {e}"))?,
             None => HashMap::new(),
         };
 
@@ -52,7 +52,7 @@ impl Backend for Flatpak {
             Some(pinned) => pinned
                 .as_list()
                 .map(values_to_pins)
-                .map_err(|_| anyhow!("Pinned was not a list"))?,
+                .map_err(|e| anyhow!("Pinned was not a list\n {e}"))?,
             None => HashMap::new(),
         };
 
@@ -60,7 +60,7 @@ impl Backend for Flatpak {
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Flatpak"))?
             .as_list()
-            .map_err(|_| anyhow!("Failed to parse packages for Flatpak"))?
+            .map_err(|e| anyhow!("Failed to parse packages for Flatpak\n {e}"))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -82,7 +82,7 @@ impl Backend for Flatpak {
             Perms::User,
             false,
         )
-        .map_err(|_| anyhow!("Failed to find listed flatpak packages"))?;
+        .map_err(|e| anyhow!("Failed to find listed flatpak packages\n {e}"))?;
         let installed_packages: HashSet<_> = installed_packages.lines().collect();
 
         self.install_pins(&installed_packages, &mut closures)?;
@@ -93,12 +93,12 @@ impl Backend for Flatpak {
             .iter()
             .try_for_each(|closure| engine.execute_closure(closure))
             .inspect(|_| log::info!("Successful flatpak closure execution"))
-            .map_err(|_| anyhow!("Failed to execute post hooks"))
+            .map_err(|e| anyhow!("Failed to execute post hooks\n {e}"))
     }
 
     fn remove(&self, _: &mut Record) -> Result<()> {
         let pins = run_command_for_stdout(["flatpak", "pin", "--user"], Perms::User, true)
-            .map_err(|_| anyhow!("Failed to find pinned packages"))?;
+            .map_err(|e| anyhow!("Failed to find pinned packages\n {e}"))?;
 
         let pins = pins
             .lines()
@@ -110,7 +110,7 @@ impl Backend for Flatpak {
                 run_command(["flatpak", "pin", "--remove", "--user", pin], Perms::User)
             })
             .inspect(|_| log::info!("Removed extra flatpak pins"))
-            .map_err(|_| anyhow!("Failed to remove pinned packages"))?;
+            .map_err(|e| anyhow!("Failed to remove pinned packages\n {e}"))?;
 
         let installed_packages = run_command_for_stdout(
             [
@@ -123,7 +123,7 @@ impl Backend for Flatpak {
             Perms::User,
             false,
         )
-        .map_err(|_| anyhow!("Failed to find installed packages"))?;
+        .map_err(|e| anyhow!("Failed to find installed packages\n {e}"))?;
 
         let extra_packages = installed_packages
             .lines()
@@ -136,7 +136,7 @@ impl Backend for Flatpak {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully removed extra flatpak packages"))
-        .map_err(|_| anyhow!("Failed to remove extra packages"))
+        .map_err(|e| anyhow!("Failed to remove extra packages\n {e}"))
     }
 
     fn clean_cache(&self, _config: &Record) -> Result<()> {
@@ -145,7 +145,7 @@ impl Backend for Flatpak {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully removed unused flatpak packages"))
-        .map_err(|_| anyhow!("Failed to clean cache"))
+        .map_err(|e| anyhow!("Failed to clean cache\n {e}"))
     }
 }
 
@@ -157,7 +157,7 @@ impl Flatpak {
     ) -> Result<()> {
         let installed_pins =
             run_command_for_stdout(["flatpak", "pin", "--user"], Perms::User, true)
-                .map_err(|_| anyhow!("Failed to check for pinned packages"))?;
+                .map_err(|e| anyhow!("Failed to check for pinned packages\n {e}"))?;
 
         let installed_pins: HashMap<_, _> = installed_pins
             .lines()
@@ -197,7 +197,7 @@ impl Flatpak {
                 .map(|s| [s.0.as_str(), s.1.as_str(), s.2.as_str()].join(""))
                 .try_for_each(|pin| {
                     run_command(["flatpak", "pin", "--user", pin.as_str()], Perms::User)
-                        .map_err(|_| anyhow!("Failed to pin packages"))
+                        .map_err(|e| anyhow!("Failed to pin packages\n {e}"))
                 })
                 .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
 
@@ -208,7 +208,7 @@ impl Flatpak {
                 Perms::User,
             )
             .inspect(|_| log::debug!("Installed the missing runtime patterns"))
-            .map_err(|_| anyhow!("Failed to install packages"))?;
+            .map_err(|e| anyhow!("Failed to install packages\n {e}"))?;
         }
 
         Ok(())
@@ -239,7 +239,7 @@ impl Flatpak {
                     .chain(free_packages),
                 Perms::User,
             )
-            .map_err(|_| anyhow!("failed to install remote-agnostic packages"))?;
+            .map_err(|e| anyhow!("failed to install remote-agnostic packages\n {e}"))?;
         }
 
         log::debug!("Installed remote-agnostic packages");
@@ -263,7 +263,9 @@ impl Flatpak {
                 ["flatpak", "install", "--user", remote, package],
                 Perms::User,
             )
-            .map_err(|_| anyhow!("Failed to install package {package} from remote {remote}"))?;
+            .map_err(|e| {
+                anyhow!("Failed to install package {package} from remote {remote}\n {e}")
+            })?;
         }
 
         log::debug!("Installed remote-specific packages");
@@ -283,13 +285,13 @@ fn values_to_pins(values: &[Value]) -> HashMap<String, PinOpts> {
 fn value_to_pkgspec(value: &Value) -> Result<(String, FlatpakOpts)> {
     let record = value
         .as_record()
-        .map_err(|_| anyhow!("pkgspec was not a record"))?;
+        .map_err(|e| anyhow!("pkgspec was not a record\n {e}"))?;
 
     let name = record
         .get(PACKAGE_KEY)
         .ok_or_else(|| anyhow!("record package key is missing"))?
         .as_str()
-        .map_err(|_| anyhow!("record package key is not a string"))?
+        .map_err(|e| anyhow!("record package key is not a string\n {e}"))?
         .to_owned();
 
     let remote = match record.get(REMOTE_KEY) {
@@ -297,7 +299,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, FlatpakOpts)> {
             remote
                 .as_str()
                 .map(ToOwned::to_owned)
-                .map_err(|_| anyhow!("record remote key is not a string in {name}"))?,
+                .map_err(|e| anyhow!("record remote key is not a string in {name}\n {e}"))?,
         ),
         None => None,
     };
@@ -306,7 +308,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, FlatpakOpts)> {
         Some(post_hook) => {
             let post_hook = post_hook
                 .as_closure()
-                .map_err(|_| anyhow!("Post hook for {name} is not a closure"))?;
+                .map_err(|e| anyhow!("Post hook for {name} is not a closure\n {e}"))?;
             if !post_hook.captures.is_empty() {
                 log::warn!("Post hook for {name} captures locals, ignoring");
                 None
@@ -323,13 +325,13 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, FlatpakOpts)> {
 fn value_to_pinspec(value: &Value) -> Result<(String, PinOpts)> {
     let record = value
         .as_record()
-        .map_err(|_| anyhow!("pinspec is not a record"))?;
+        .map_err(|e| anyhow!("pinspec is not a record\n {e}"))?;
 
     let name = record
         .get(PACKAGE_KEY)
         .ok_or_else(|| anyhow!("record package key missing"))?
         .as_str()
-        .map_err(|_| anyhow!("record package key is not a string"))?
+        .map_err(|e| anyhow!("record package key is not a string\n {e}"))?
         .to_owned();
 
     let branch = match record.get(BRANCH_KEY) {
@@ -337,7 +339,7 @@ fn value_to_pinspec(value: &Value) -> Result<(String, PinOpts)> {
             branch
                 .as_str()
                 .map(ToOwned::to_owned)
-                .map_err(|_| anyhow!("branch is not a string for {name}"))?,
+                .map_err(|e| anyhow!("branch is not a string for {name}\n {e}"))?,
         ),
         None => None,
     };
@@ -346,7 +348,7 @@ fn value_to_pinspec(value: &Value) -> Result<(String, PinOpts)> {
         Some(arch) => Some(
             arch.as_str()
                 .map(ToOwned::to_owned)
-                .map_err(|_| anyhow!("Branch is not a string for {name}"))?,
+                .map_err(|e| anyhow!("Branch is not a string for {name}\n {e}"))?,
         ),
         None => None,
     };
@@ -355,7 +357,7 @@ fn value_to_pinspec(value: &Value) -> Result<(String, PinOpts)> {
         Some(closure) => {
             let post_hook = closure
                 .as_closure()
-                .map_err(|_| anyhow!("Closure for {name} is not a closure"))?;
+                .map_err(|e| anyhow!("Closure for {name} is not a closure\n {e}"))?;
 
             if !post_hook.captures.is_empty() {
                 log::warn!("closure for {name} captures variables, ignoring");

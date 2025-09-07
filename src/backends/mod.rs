@@ -71,8 +71,8 @@ macro_rules! backend_parse {
                 Some(
                     Backends::$backend($backend::new(packages)
                     .map_err(|e| {
-                        error!("Error encountered in parsing {} packages", stringify!($backend));
-                        error!("{e}");
+                        log::error!("Error encountered in parsing {} packages", stringify!($backend));
+                        log::error!("{e}");
                         io::ErrorKind::InvalidData
                     })?)
                 ),

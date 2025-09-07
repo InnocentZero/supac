@@ -38,7 +38,7 @@ impl Backend for Cargo {
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Cargo"))?
             .as_list()
-            .map_err(|_| anyhow!("Packages not a list for Cargo"))?
+            .map_err(|e| anyhow!("Packages not a list for Cargo\n {e}"))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -83,7 +83,7 @@ impl Backend for Cargo {
             .filter(|package| !configured_packages.contains_key(package))
             .try_for_each(|package| {
                 run_command(["cargo", "uninstall", package.as_str()], Perms::User)
-                    .map_err(|_| anyhow!("Failed to uninstall {package}"))
+                    .map_err(|e| anyhow!("Failed to uninstall {package}\n {e}"))
             })
             .inspect(|_| log::info!("Successfully removed extraneous packages"))
     }
@@ -94,7 +94,7 @@ impl Backend for Cargo {
         match stdout {
             Ok(_) => {
                 run_command(["cargo", "cache", "--autoclean"], Perms::User)
-                    .map_err(|_| anyhow!("Failed to remove cache"))?;
+                    .map_err(|e| anyhow!("Failed to remove cache\n {e}"))?;
                 log::debug!("Removed cargo's cache");
             }
             Err(_) => {
@@ -109,19 +109,19 @@ impl Backend for Cargo {
 fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let record = value
         .as_record()
-        .map_err(|_| anyhow!("Failed to parse value"))?;
+        .map_err(|e| anyhow!("Failed to parse value\n {e}"))?;
 
     let package = record
         .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
         .as_str()
-        .map_err(|_| anyhow!("Package name in record is not a string"))?
+        .map_err(|e| anyhow!("Package name in record is not a string\n {e}"))?
         .to_owned();
 
     let all_features = match record.get(ALL_FEATURES_KEY) {
         Some(all_features) => all_features
             .as_bool()
-            .map_err(|_| anyhow!("all_features in {package} is not a boolean"))?,
+            .map_err(|e| anyhow!("all_features in {package} is not a boolean\n {e}"))?,
         None => {
             log::debug!("all_features not specified in {package}, defaulting to false");
             false
@@ -134,7 +134,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let no_default_features = match no_default_features {
         Some(no_default_features) => no_default_features
             .as_bool()
-            .map_err(|_| anyhow!("no_default_features in {package} is not a boolean"))?,
+            .map_err(|e| anyhow!("no_default_features in {package} is not a boolean\n {e}"))?,
         None => {
             log::debug!("no_default_features not specified in {package}, defaulting to false");
             false
@@ -147,12 +147,12 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let features = match features {
         Some(features) => features
             .as_list()
-            .map_err(|_| anyhow!("features in {package} is not a list"))?
+            .map_err(|e| anyhow!("features in {package} is not a list\n {e}"))?
             .iter()
             .map(|elem| {
                 elem.as_str()
                     .map(ToOwned::to_owned)
-                    .map_err(|_| anyhow!("Element in {package} features not a string"))
+                    .map_err(|e| anyhow!("Element in {package} features not a string\n {e}"))
             })
             .collect::<Result<Box<[_]>>>()?,
         None => Box::new([]),
@@ -162,7 +162,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         Some(git_remote) => Some(
             git_remote
                 .as_str()
-                .map_err(|_| anyhow!("Failed to parse git remote for {package}"))?
+                .map_err(|e| anyhow!("Failed to parse git remote for {package}\n {e}"))?
                 .to_owned(),
         ),
         None => None,
@@ -172,7 +172,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         Some(closure) => {
             let closure = closure
                 .as_closure()
-                .map_err(|_| anyhow!("closure for {package} not a closure, ignoring"))?;
+                .map_err(|e| anyhow!("closure for {package} not a closure\n {e}"))?;
             if !closure.captures.is_empty() {
                 log::warn!("closure for {package} captures variables");
                 None
@@ -250,7 +250,7 @@ fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
         .chain(features)
         .chain([name]);
 
-    run_command(command, Perms::User).map_err(|_| anyhow!("Failed to install {name}"))
+    run_command(command, Perms::User).map_err(|e| anyhow!("Failed to install {name}\n {e}"))
 }
 
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences

@@ -13,8 +13,6 @@ use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 use env_logger::Env;
-use log::error;
-use log::info;
 use parser::Engine;
 
 mod backends;
@@ -62,20 +60,18 @@ struct SyncCommand {
 
 #[derive(Args)]
 #[command(visible_alias("u"))]
-/// show explicitly installed packages not managed by metapac
-struct UnmanagedCommand {}
+/// show explicitly installed packages not managed
+struct UnmanagedCommand;
 
 #[derive(Args)]
 #[command(visible_alias("b"))]
-/// show the backends found by metapac
-struct BackendsCommand {}
+/// show the backends found
+struct BackendsCommand;
 
 #[derive(Args)]
 #[command(visible_alias("e"))]
-/// clean the caches of all the backends, or the just those specified
-struct CleanCacheCommand {
-    backends: Option<Vec<String>>,
-}
+/// clean the caches of all the backends
+struct CleanCacheCommand;
 
 fn main() -> io::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("off")).init();
@@ -85,38 +81,38 @@ fn main() -> io::Result<()> {
         .config_dir
         .map(Ok)
         .unwrap_or_else(|| {
-            info!("config path not supplied through arguments. Reading from default path");
+            log::info!("config path not supplied through arguments. Reading from default path");
             config::get_config_path()
         })
         .map_err(|e| {
-            error!("Error encountered: {e:?}");
+            log::error!("Error encountered: {e:?}");
             io::ErrorKind::NotFound
         })?;
 
     if !config_file.exists() {
         fs::create_dir_all(config_file.parent().unwrap_or(path::Path::new("/"))).map_err(|e| {
-            error!("Failed to create parent directories");
-            error!(
+            log::error!("Failed to create parent directories");
+            log::error!(
                 "While unlikely, it may be possible that their was no parent of the config file."
             );
-            error!("{e:?}");
+            log::error!("{e:?}");
             io::ErrorKind::NotFound
         })?;
 
         fs::File::create(&config_file)
             .map_err(|e| {
-                error!("Error occured: {e:?}");
+                log::error!("Error occured: {e:?}");
                 io::ErrorKind::NotFound
             })?
             .sync_all()
             .map_err(|e| {
-                error!("Error occured: {e:?}");
+                log::error!("Error occured: {e:?}");
                 io::ErrorKind::InvalidData
             })?;
 
         config::write_default_config(&config_file).map_err(|e| {
-            error!("Error occured while writing the default config.");
-            error!("{e:?}");
+            log::error!("Error occured while writing the default config.");
+            log::error!("{e:?}");
             io::ErrorKind::InvalidInput
         })?;
     }
@@ -124,14 +120,14 @@ fn main() -> io::Result<()> {
     let config_dir = config_file.parent().unwrap();
 
     let config_contents = fs::read(&config_file).map_err(|e| {
-        error!("Error occured when reading the config spec");
-        error!("{e:?}");
+        log::error!("Error occured when reading the config spec");
+        log::error!("{e:?}");
         e
     })?;
     let mut config_engine = Engine::new(config_dir);
     let mut config = config_engine.fetch(&config_contents).map_err(|e| {
-        error!("Error encountered while parsing config spec");
-        error!("{e}");
+        log::error!("Error encountered while parsing config spec");
+        log::error!("{e}");
         io::ErrorKind::InvalidData
     })?;
 
@@ -139,37 +135,43 @@ fn main() -> io::Result<()> {
         .join(std::ffi::OsStr::new("/"));
 
     let contents = read(package_nu).map_err(|e| {
-        error!("Error occured when reading the package spec.");
-        error!("{e:?}");
+        log::error!("Error occured when reading the package spec.");
+        log::error!("{e:?}");
         e
     })?;
 
     let mut engine = Engine::new(config_dir);
 
     let packages = engine.fetch(&contents).map_err(|e| {
-        error!("Error encountered while parsing package spec");
-        error!("{e}");
+        log::error!("Error encountered while parsing package spec");
+        log::error!("{e}");
         io::ErrorKind::InvalidData
     })?;
 
     let mut backends = parse_all_backends!(packages);
 
-    let res = backends
-        .iter_mut()
-        .flat_map(|backend_opt| {
-            backend_opt.as_mut().map(|backend| match &args.subcommand {
-                SubCommand::Clean(_clean_command) => backend.remove(&mut config),
-                SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
-                SubCommand::Unmanaged(_unmanaged_command) => todo!(),
-                SubCommand::Backends(_backends_command) => todo!(),
-                SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
-            })
+    let results = backends.iter_mut().flat_map(|backend_opt| {
+        backend_opt.as_mut().map(|backend| match &args.subcommand {
+            SubCommand::Clean(_clean_command) => backend.remove(&mut config),
+            SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
+            SubCommand::Unmanaged(_unmanaged_command) => todo!(),
+            SubCommand::Backends(_backends_command) => todo!(),
+            SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
         })
-        .collect::<anyhow::Result<()>>();
+    });
 
-    res.map_err(|e| {
-        error!("Error encountered while processing command");
-        error!("{e:?}");
-        io::Error::from(io::ErrorKind::InvalidData)
-    })
+    let mut result = Ok(());
+
+    for res in results {
+        match res {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Error encountered while processing command");
+                log::error!("{e}");
+                result = Err(io::ErrorKind::InvalidData.into());
+            }
+        }
+    }
+
+    result
 }
