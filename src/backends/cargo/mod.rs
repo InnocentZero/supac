@@ -196,13 +196,19 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
 }
 
 fn get_installed_packages() -> Result<HashSet<String>> {
-    let crate_file =
-        std::env::var("CARGO_HOME").unwrap_or("~/.cargo".to_owned()) + "/.crates2.json";
+    let crate_file = std::env::var("CARGO_HOME").or_else(|e| -> Result<String> {
+        log::debug!("Encountered error: {e}");
+        log::debug!("Using the default: ~/.cargo");
+        let home = std::env::var("HOME")?;
+        Ok(home + "/.cargo")
+    })? + "/.crates2.json";
 
     let cratespec = match fs::read_to_string(&crate_file) {
         Ok(cratespec) => cratespec,
-        Err(_) => {
-            log::warn!("Error occured in reading crate file. Assuming crates are not installed.");
+        Err(e) => {
+            log::warn!(
+                "Error {e} occured in reading crate file. Assuming crates are not installed."
+            );
             return Ok(HashSet::new());
         }
     };
