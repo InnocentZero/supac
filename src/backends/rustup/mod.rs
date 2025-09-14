@@ -17,11 +17,12 @@ const ARCH_KEY: &str = "arch";
 const VENDOR_KEY: &str = "vendor";
 const OS_KEY: &str = "os";
 
-const DEFAULT_COMPONENTS: [&str; 6] = [
+const DEFAULT_COMPONENTS: [&str; 7] = [
     "cargo",
     "clippy",
     "rust-docs",
     "rust-std",
+    "rust-src",
     "rustc",
     "rustfmt",
 ];
