@@ -1,8 +1,8 @@
 use std::fs;
 use std::fs::read;
-use std::io;
 use std::path;
 
+use anyhow::anyhow;
 use backends::Arch;
 use backends::Backend;
 use backends::Backends;
@@ -73,7 +73,7 @@ struct BackendsCommand;
 /// clean the caches of all the backends
 struct CleanCacheCommand;
 
-fn main() -> io::Result<()> {
+fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("off")).init();
     let args = Arguments::parse();
 
@@ -84,10 +84,7 @@ fn main() -> io::Result<()> {
             log::info!("config path not supplied through arguments. Reading from default path");
             config::get_config_path()
         })
-        .map_err(|e| {
-            log::error!("Error encountered: {e:?}");
-            io::ErrorKind::NotFound
-        })?;
+        .map_err(|e| anyhow!("Error encountered: {e:?}"))?;
 
     if !config_file.exists() {
         fs::create_dir_all(config_file.parent().unwrap_or(path::Path::new("/"))).map_err(|e| {
@@ -95,25 +92,17 @@ fn main() -> io::Result<()> {
             log::error!(
                 "While unlikely, it may be possible that their was no parent of the config file."
             );
-            log::error!("{e:?}");
-            io::ErrorKind::NotFound
+            anyhow!("{e:?}")
         })?;
 
         fs::File::create(&config_file)
-            .map_err(|e| {
-                log::error!("Error occured: {e:?}");
-                io::ErrorKind::NotFound
-            })?
+            .map_err(|e| anyhow!("Error occured: {e:?}"))?
             .sync_all()
-            .map_err(|e| {
-                log::error!("Error occured: {e:?}");
-                io::ErrorKind::InvalidData
-            })?;
+            .map_err(|e| anyhow!("Error occured: {e:?}"))?;
 
         config::write_default_config(&config_file).map_err(|e| {
             log::error!("Error occured while writing the default config.");
-            log::error!("{e:?}");
-            io::ErrorKind::InvalidInput
+            anyhow!("{e:?}")
         })?;
     }
 
@@ -127,8 +116,7 @@ fn main() -> io::Result<()> {
     let mut config_engine = Engine::new(config_dir);
     let mut config = config_engine.fetch(&config_contents).map_err(|e| {
         log::error!("Error encountered while parsing config spec");
-        log::error!("{e}");
-        io::ErrorKind::InvalidData
+        anyhow!("{e}")
     })?;
 
     let package_nu = [config_dir.as_os_str(), std::ffi::OsStr::new("package.nu")]
@@ -142,11 +130,9 @@ fn main() -> io::Result<()> {
 
     let mut engine = Engine::new(config_dir);
 
-    let packages = engine.fetch(&contents).map_err(|e| {
-        log::error!("Error encountered while parsing package spec");
-        log::error!("{e}");
-        io::ErrorKind::InvalidData
-    })?;
+    let packages = engine
+        .fetch(&contents)
+        .map_err(|e| anyhow!("Error encountered while parsing package spec\n {e}"))?;
 
     let mut backends = parse_all_backends!(packages);
 
@@ -167,8 +153,7 @@ fn main() -> io::Result<()> {
             Ok(_) => {}
             Err(e) => {
                 log::error!("Error encountered while processing command");
-                log::error!("{e}");
-                result = Err(io::ErrorKind::InvalidData.into());
+                result = Err(anyhow!("{e}"));
             }
         }
     }
