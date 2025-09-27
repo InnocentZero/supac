@@ -72,7 +72,7 @@ macro_rules! backend_parse {
                     Backends::$backend($backend::new(packages)
                     .map_err(|e| {
                         log::error!("Error encountered in parsing {} packages", stringify!($backend));
-                        anyhow!("{e}")
+                        mod_err!(e)
                     })?)
                 ),
                 None => None,

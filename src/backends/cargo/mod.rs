@@ -6,6 +6,7 @@ use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{Perms, run_command, run_command_for_stdout};
 use crate::parser::Engine;
+use crate::{function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -36,9 +37,9 @@ impl Backend for Cargo {
     fn new(value: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
-            .ok_or(anyhow!("Failed to get packages for Cargo"))?
+            .ok_or(mod_err!("Failed to get packages for Cargo"))?
             .as_list()
-            .map_err(|e| anyhow!("Packages not a list for Cargo\n {e}"))?
+            .map_err(|e| nest_errors!("Packages not a list for Cargo", e))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -83,7 +84,7 @@ impl Backend for Cargo {
             .filter(|package| !configured_packages.contains_key(package))
             .try_for_each(|package| {
                 run_command(["cargo", "uninstall", package.as_str()], Perms::User)
-                    .map_err(|e| anyhow!("Failed to uninstall {package}\n {e}"))
+                    .map_err(|e| nest_errors!("Failed to uninstall {package}", e))
             })
             .inspect(|_| log::info!("Successfully removed extraneous packages"))
     }
@@ -94,7 +95,7 @@ impl Backend for Cargo {
         match stdout {
             Ok(_) => {
                 run_command(["cargo", "cache", "--autoclean"], Perms::User)
-                    .map_err(|e| anyhow!("Failed to remove cache\n {e}"))?;
+                    .map_err(|e| nest_errors!("Failed to remove cache", e))?;
                 log::debug!("Removed cargo's cache");
             }
             Err(_) => {
@@ -109,19 +110,19 @@ impl Backend for Cargo {
 fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let record = value
         .as_record()
-        .map_err(|e| anyhow!("Failed to parse value\n {e}"))?;
+        .map_err(|e| nest_errors!("Failed to parse value", e))?;
 
     let package = record
         .get(PACKAGE_KEY)
-        .ok_or(anyhow!("No package mentioned"))?
+        .ok_or(mod_err!("No package mentioned"))?
         .as_str()
-        .map_err(|e| anyhow!("Package name in record is not a string\n {e}"))?
+        .map_err(|e| nest_errors!("Package name in record is not a string", e))?
         .to_owned();
 
     let all_features = match record.get(ALL_FEATURES_KEY) {
         Some(all_features) => all_features
             .as_bool()
-            .map_err(|e| anyhow!("all_features in {package} is not a boolean\n {e}"))?,
+            .map_err(|e| nest_errors!("all_features in {package} is not a boolean", e))?,
         None => {
             log::debug!("all_features not specified in {package}, defaulting to false");
             false
@@ -134,7 +135,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let no_default_features = match no_default_features {
         Some(no_default_features) => no_default_features
             .as_bool()
-            .map_err(|e| anyhow!("no_default_features in {package} is not a boolean\n {e}"))?,
+            .map_err(|e| nest_errors!("no_default_features in {package} is not a boolean", e))?,
         None => {
             log::debug!("no_default_features not specified in {package}, defaulting to false");
             false
@@ -147,12 +148,12 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     let features = match features {
         Some(features) => features
             .as_list()
-            .map_err(|e| anyhow!("features in {package} is not a list\n {e}"))?
+            .map_err(|e| nest_errors!("features in {package} is not a list", e))?
             .iter()
             .map(|elem| {
                 elem.as_str()
                     .map(ToOwned::to_owned)
-                    .map_err(|e| anyhow!("Element in {package} features not a string\n {e}"))
+                    .map_err(|e| nest_errors!("Element in {package} features not a string", e))
             })
             .collect::<Result<Box<[_]>>>()?,
         None => Box::new([]),
@@ -162,7 +163,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         Some(git_remote) => Some(
             git_remote
                 .as_str()
-                .map_err(|e| anyhow!("Failed to parse git remote for {package}\n {e}"))?
+                .map_err(|e| nest_errors!("Failed to parse git remote for {package}", e))?
                 .to_owned(),
         ),
         None => None,
@@ -172,7 +173,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
         Some(closure) => {
             let closure = closure
                 .as_closure()
-                .map_err(|e| anyhow!("closure for {package} not a closure\n {e}"))?;
+                .map_err(|e| nest_errors!("closure for {package} not a closure", e))?;
             if !closure.captures.is_empty() {
                 log::warn!("closure for {package} captures variables");
                 None
@@ -218,9 +219,9 @@ fn get_installed_packages() -> Result<HashSet<String>> {
 
     let packages: HashSet<_> = cratespec
         .get(CRATE_INSTALLS_KEY)
-        .ok_or_else(|| anyhow!("Malformed cratespec contents! Can't find the required installs"))?
+        .ok_or_else(|| mod_err!("Malformed cratespec contents! Can't find the required installs"))?
         .as_object()
-        .ok_or_else(|| anyhow!("Malformed cratespec contents! Installs field not a JSON object"))?
+        .ok_or_else(|| mod_err!("Malformed cratespec contents! Installs field not a JSON object"))?
         .keys()
         .filter_map(|package| package.split_once(' ').map(|package| package.0))
         .map(ToOwned::to_owned)
@@ -256,30 +257,30 @@ fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
         .chain(features)
         .chain([name]);
 
-    run_command(command, Perms::User).map_err(|e| anyhow!("Failed to install {name}\n {e}"))
+    run_command(command, Perms::User).map_err(|e| nest_errors!("Failed to install {name}", e))
 }
 
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
 // rather than just check for the existence of the package and leave it at that
 fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String, CargoOpts)> {
-    let spec = spec.as_object().ok_or(anyhow!("Malformed spec: {name}"))?;
+    let spec = spec.as_object().ok_or(mod_err!("Malformed spec: {name}"))?;
 
     let (name, version_source) = name
         .split_once(' ')
-        .ok_or(anyhow!("Malformed name: {name}"))?;
+        .ok_or(mod_err!("Malformed name: {name}"))?;
 
     let (_version, source) = version_source
         .split_once(' ')
-        .ok_or(anyhow!("Malformed version/source: {name}"))?;
+        .ok_or(mod_err!("Malformed version/source: {name}"))?;
 
     let git_remote = if source.starts_with("(git+") {
         let url = source
             .split("+")
             .nth(1)
-            .ok_or(anyhow!("Malformed git source: {name}"))?
+            .ok_or(mod_err!("Malformed git source: {name}"))?
             .split("#")
             .next()
-            .ok_or(anyhow!("Malformed git url: {name}"))?
+            .ok_or(mod_err!("Malformed git url: {name}"))?
             .to_owned();
 
         Some(url)
@@ -289,21 +290,21 @@ fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String
 
     let all_features = spec
         .get("all_features")
-        .ok_or(anyhow!("Missing field all_features: {name}"))?
+        .ok_or(mod_err!("Missing field all_features: {name}"))?
         .as_bool()
-        .ok_or(anyhow!("Malformed field all_features not a bool: {name}"))?;
+        .ok_or(mod_err!("Malformed field all_features not a bool: {name}"))?;
 
     let no_default_features = spec
         .get("no_default_features")
-        .ok_or(anyhow!("Missing field all_features: {name}"))?
+        .ok_or(mod_err!("Missing field all_features: {name}"))?
         .as_bool()
-        .ok_or(anyhow!("Malformed field all_features not a bool: {name}"))?;
+        .ok_or(mod_err!("Malformed field all_features not a bool: {name}"))?;
 
     let features = spec
         .get("features")
-        .ok_or(anyhow!("Missing field features: {name}"))?
+        .ok_or(mod_err!("Missing field features: {name}"))?
         .as_array()
-        .ok_or(anyhow!("Malformed field features: {name}"))?
+        .ok_or(mod_err!("Malformed field features: {name}"))?
         .iter()
         .map(|feature| feature.as_str().unwrap().to_string())
         .collect();

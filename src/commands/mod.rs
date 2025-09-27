@@ -2,6 +2,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, anyhow};
 
+use crate::{function, mod_err};
+
 #[derive(PartialEq, Eq, Debug)]
 pub enum Perms {
     Root,
@@ -16,7 +18,7 @@ where
     let args: Vec<String> = args.into_iter().map(Into::into).collect::<Vec<_>>();
 
     if args.is_empty() {
-        return Err(anyhow!("cannot run an empty command"));
+        return Err(mod_err!("cannot run an empty command"));
     }
 
     let args = Some("sudo".to_string())
@@ -42,7 +44,7 @@ where
     if output.status.success() {
         Ok(String::from_utf8(output.stdout)?)
     } else {
-        Err(anyhow!("command failed: {:?}", args.join(" ")))
+        Err(mod_err!("command failed: {:?}", args.join(" ")))
     }
 }
 
@@ -54,7 +56,7 @@ where
     let args: Vec<String> = args.into_iter().map(Into::into).collect::<Vec<_>>();
 
     if args.is_empty() {
-        return Err(anyhow!("cannot run an empty command"));
+        return Err(mod_err!("cannot run an empty command"));
     }
 
     let args = Some("sudo".to_string())
@@ -76,6 +78,6 @@ where
     if status.success() {
         Ok(())
     } else {
-        Err(anyhow!("command failed: {:?}", args.join(" ")))
+        Err(mod_err!("command failed: {:?}", args.join(" ")))
     }
 }

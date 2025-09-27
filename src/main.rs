@@ -1,5 +1,5 @@
-use std::fs;
-use std::fs::read;
+use std::ffi::OsStr;
+use std::fs::{File, create_dir_all, read};
 use std::path;
 
 use anyhow::anyhow;
@@ -18,6 +18,7 @@ use parser::Engine;
 mod backends;
 mod commands;
 mod config;
+mod error;
 mod parser;
 
 /// A nushell based declarative package management utility
@@ -84,31 +85,31 @@ fn main() -> anyhow::Result<()> {
             log::info!("config path not supplied through arguments. Reading from default path");
             config::get_config_path()
         })
-        .map_err(|e| anyhow!("Error encountered: {e:?}"))?;
+        .map_err(|e| mod_err!(e))?;
 
     if !config_file.exists() {
-        fs::create_dir_all(config_file.parent().unwrap_or(path::Path::new("/"))).map_err(|e| {
+        create_dir_all(config_file.parent().unwrap_or(path::Path::new("/"))).map_err(|e| {
             log::error!("Failed to create parent directories");
             log::error!(
                 "While unlikely, it may be possible that their was no parent of the config file."
             );
-            anyhow!("{e:?}")
+            mod_err!(e)
         })?;
 
-        fs::File::create(&config_file)
-            .map_err(|e| anyhow!("Error occured: {e:?}"))?
+        File::create(&config_file)
+            .map_err(|e| mod_err!(e))?
             .sync_all()
-            .map_err(|e| anyhow!("Error occured: {e:?}"))?;
+            .map_err(|e| mod_err!(e))?;
 
         config::write_default_config(&config_file).map_err(|e| {
             log::error!("Error occured while writing the default config.");
-            anyhow!("{e:?}")
+            mod_err!(e)
         })?;
     }
 
     let config_dir = config_file.parent().unwrap();
 
-    let config_contents = fs::read(&config_file).map_err(|e| {
+    let config_contents = read(&config_file).map_err(|e| {
         log::error!("Error occured when reading the config spec");
         log::error!("{e:?}");
         e
@@ -116,11 +117,10 @@ fn main() -> anyhow::Result<()> {
     let mut config_engine = Engine::new(config_dir);
     let mut config = config_engine.fetch(&config_contents).map_err(|e| {
         log::error!("Error encountered while parsing config spec");
-        anyhow!("{e}")
+        mod_err!(e)
     })?;
 
-    let package_nu = [config_dir.as_os_str(), std::ffi::OsStr::new("package.nu")]
-        .join(std::ffi::OsStr::new("/"));
+    let package_nu = [config_dir.as_os_str(), OsStr::new("package.nu")].join(OsStr::new("/"));
 
     let contents = read(package_nu).map_err(|e| {
         log::error!("Error occured when reading the package spec.");
@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
 
     let packages = engine
         .fetch(&contents)
-        .map_err(|e| anyhow!("Error encountered while parsing package spec\n {e}"))?;
+        .map_err(|e| nest_errors!("Error encountered while parsing package spec", e))?;
 
     let mut backends = parse_all_backends!(packages);
 
@@ -146,17 +146,10 @@ fn main() -> anyhow::Result<()> {
         })
     });
 
-    let mut result = Ok(());
-
-    for res in results {
-        match res {
-            Ok(_) => {}
-            Err(e) => {
-                log::error!("Error encountered while processing command");
-                result = Err(anyhow!("{e}"));
-            }
-        }
-    }
-
-    result
+    #[allow(clippy::manual_try_fold)]
+    results.fold(Ok(()), |acc, curr| match (acc, curr) {
+        (acc, Ok(_)) => acc,
+        (Ok(_), curr) => curr,
+        (Err(orig), Err(e)) => Err(concat_err!(orig, e)),
+    })
 }

@@ -5,6 +5,7 @@ use nu_protocol::{Record, Value};
 
 use crate::{
     commands::{Perms, run_command, run_command_for_stdout},
+    function, mod_err, nest_errors,
     parser::Engine,
 };
 
@@ -42,9 +43,9 @@ impl Backend for Rustup {
     fn new(value: &Record) -> Result<Self> {
         let toolchains = value
             .get(TOOLCHAIN_LIST_KEY)
-            .ok_or(anyhow!("Failed to get toolchains for Rustup"))?
+            .ok_or(mod_err!("Failed to get toolchains for Rustup"))?
             .as_record()
-            .map_err(|e| anyhow!("The toolchain spec in Rustup is not a record\n {e}"))?;
+            .map_err(|e| nest_errors!("The toolchain spec in Rustup is not a record", e))?;
 
         let toolchains = values_to_pkgspec(toolchains)?;
 
@@ -139,7 +140,7 @@ impl Rustup {
                 Perms::User,
             )
             .map(|_| log::debug!("Successfully removed unused toolchains"))
-            .map_err(|e| anyhow!("Failed to remove toolchains\n {e}"))
+            .map_err(|e| nest_errors!("Failed to remove toolchains", e))
         }
     }
 
@@ -177,7 +178,7 @@ fn values_to_pkgspec(record: &Record) -> Result<HashMap<String, ToolchainSpec>> 
 
 fn get_installed_toolchains() -> Result<Box<[String]>> {
     let toolchains = run_command_for_stdout(["rustup", "toolchain", "list"], Perms::User, true)
-        .map_err(|e| anyhow!("Failed to get toolchains\n {e}"))?;
+        .map_err(|e| nest_errors!("Failed to get toolchains", e))?;
 
     let toolchains = toolchains
         .lines()
@@ -215,7 +216,7 @@ fn install_missing_toolchain(toolchain: &str, toolchain_spec: &ToolchainSpec) ->
         Perms::User,
     )
     .inspect(|_| log::debug!("Successfully installed missing toolchain {toolchain}"))
-    .map_err(|e| anyhow!("Failed to install toolchain {toolchain}\n {e}"))
+    .map_err(|e| nest_errors!("Failed to install toolchain {toolchain}", e))
 }
 
 fn install_missing_targets(toolchain: &String, configured_targets: &[String]) -> Result<()> {
@@ -237,7 +238,7 @@ fn install_missing_targets(toolchain: &String, configured_targets: &[String]) ->
                 .chain(missing_targets),
             Perms::User,
         )
-        .map_err(|e| anyhow!("Failed to add targets for {toolchain}\n {e}"))
+        .map_err(|e| nest_errors!("Failed to add targets for {toolchain}", e))
     }
 }
 
@@ -265,7 +266,7 @@ fn install_missing_components(toolchain: &String, configured_components: &[Strin
                 .chain(missing_components),
             Perms::User,
         )
-        .map_err(|e| anyhow!("Failed to add components for {toolchain}\n {e}"))
+        .map_err(|e| nest_errors!("Failed to add components for {toolchain}", e))
     }
 }
 
@@ -289,7 +290,7 @@ fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Resul
             Perms::User,
         )
         .inspect(|_| log::debug!("Remove extra targets for {toolchain}"))
-        .map_err(|e| anyhow!("Failed to remove unused targets for {toolchain}!\n {e}"))
+        .map_err(|e| nest_errors!("Failed to remove unused targets for {toolchain}", e))
     }
 }
 
@@ -319,20 +320,25 @@ fn remove_extra_components(toolchain: &str, configured_components: &[String]) ->
             Perms::User,
         )
         .inspect(|_| log::debug!("Removed extra components for {toolchain}"))
-        .map_err(|e| anyhow!("rustup command to remove components for {toolchain} failed!\n {e}"))
+        .map_err(|e| {
+            nest_errors!(
+                "rustup command to remove components for {toolchain} failed!",
+                e
+            )
+        })
     }
 }
 
 fn value_to_toolchainspec(toolchain: &str, value: &Value) -> Result<ToolchainSpec> {
     let record = value
         .as_record()
-        .map_err(|e| anyhow!("Parse error for value in {toolchain}, not a record\n {e}"))?;
+        .map_err(|e| nest_errors!("Parse error for value in {toolchain}, not a record", e))?;
 
     let components = match record.get(COMPONENT_LIST_KEY) {
         Some(components) => {
             let components = components
                 .as_list()
-                .map_err(|e| anyhow!("Failed to convert components to a list\n {e}"))?;
+                .map_err(|e| nest_errors!("Failed to convert components to a list", e))?;
 
             parse_components(components)?
         }
@@ -344,9 +350,9 @@ fn value_to_toolchainspec(toolchain: &str, value: &Value) -> Result<ToolchainSpe
 
     let targets: Box<[_]> = match record.get(TARGET_LIST_KEY) {
         Some(targets) => {
-            let targets = targets
-                .as_list()
-                .map_err(|e| anyhow!("Parse error for targets in {toolchain}, not a list\n {e}"))?;
+            let targets = targets.as_list().map_err(|e| {
+                nest_errors!("Parse error for targets in {toolchain}, not a list", e)
+            })?;
             targets
                 .iter()
                 .map(|target| parse_target(target, toolchain))
@@ -378,7 +384,7 @@ fn get_installed_targets(toolchain: &str) -> Result<Box<[String]>> {
         Perms::User,
         false,
     )
-    .map_err(|e| anyhow!("rustup command to find targets for {toolchain} failed\n {e}"))?;
+    .map_err(|e| nest_errors!("rustup command to find targets for {toolchain} failed", e))?;
 
     let targets = targets
         .lines()
@@ -403,7 +409,12 @@ fn get_installed_components(toolchain: &str) -> Result<Box<[String]>> {
         Perms::User,
         false,
     )
-    .map_err(|e| anyhow!("rustup command to find components for {toolchain} failed\n {e}"))?;
+    .map_err(|e| {
+        nest_errors!(
+            "rustup command to find components for {toolchain} failed",
+            e
+        )
+    })?;
 
     let components = components
         .lines()
@@ -420,7 +431,7 @@ fn parse_components(components: &[Value]) -> Result<Box<[String]>> {
         .map(|comp| {
             comp.as_str()
                 .map(ToOwned::to_owned)
-                .map_err(|e| anyhow!("Expected a string for component\n {e}"))
+                .map_err(|e| nest_errors!("Expected a string for component\n", e))
         })
         .collect()
 }
@@ -428,21 +439,24 @@ fn parse_components(components: &[Value]) -> Result<Box<[String]>> {
 fn parse_target(target: &Value, toolchain: &str) -> Result<String> {
     let target = target
         .as_record()
-        .map_err(|e| anyhow!("Specified target for {toolchain} not a record\n {e}"))?;
+        .map_err(|e| nest_errors!("Specified target for {toolchain} not a record", e))?;
 
     let arch = target
         .get(ARCH_KEY)
-        .ok_or(anyhow!(
+        .ok_or(mod_err!(
             "Failed to get architecture from target for {toolchain}"
         ))?
         .as_str()
-        .map_err(|e| anyhow!("Architecture specified is not a string\n {e}"))?;
+        .map_err(|e| nest_errors!("Architecture specified is not a string", e))?;
 
     let vendor = target
         .get(VENDOR_KEY)
         .map(|vendor| {
             vendor.as_str().map_err(|e| {
-                anyhow!("Vendor specified is not a string for {arch} in {toolchain}\n {e}")
+                nest_errors!(
+                    "Vendor specified is not a string for {arch} in {toolchain}",
+                    e
+                )
             })
         })
         .unwrap_or_else(|| {
@@ -454,7 +468,7 @@ fn parse_target(target: &Value, toolchain: &str) -> Result<String> {
         .get(OS_KEY)
         .map(|os| {
             os.as_str().map_err(|e| {
-                anyhow!("OS specified is not a string for {arch} in {toolchain}\n {e}")
+                nest_errors!("OS specified is not a string for {arch} in {toolchain}", e)
             })
         })
         .unwrap_or_else(|| {
