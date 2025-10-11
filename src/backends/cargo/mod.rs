@@ -34,7 +34,7 @@ pub struct Cargo {
 }
 
 impl Backend for Cargo {
-    fn new(value: &Record) -> Result<Self> {
+    fn new(value: &Record, _config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
             .ok_or(mod_err!("Failed to get packages for Cargo"))?
@@ -348,7 +348,7 @@ mod test {
         )
         .unwrap();
 
-        let cargo = Cargo::new(&record);
+        let cargo = Cargo::new(&record, &Record::new());
         assert!(cargo.is_ok());
         let cargo = cargo.unwrap();
         assert_eq!(cargo.packages.len(), 1);
@@ -372,7 +372,7 @@ mod test {
         )
         .unwrap();
 
-        let cargo = Cargo::new(&record);
+        let cargo = Cargo::new(&record, &Record::new());
         assert!(cargo.is_err());
     }
 
@@ -393,7 +393,7 @@ mod test {
         )
         .unwrap();
 
-        let cargo = Cargo::new(&record);
+        let cargo = Cargo::new(&record, &Record::new());
         assert!(cargo.is_err());
     }
 

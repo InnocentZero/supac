@@ -23,7 +23,7 @@ pub enum Backends {
 pub trait Backend {
     fn clean_cache(&self, config: &Record) -> Result<()>;
     fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()>;
-    fn new(value: &Record) -> Result<Self>
+    fn new(value: &Record, config: &Record) -> Result<Self>
     where
         Self: Sized;
     fn remove(&self, config: &mut Record) -> Result<()>;
@@ -60,7 +60,7 @@ impl Backends {
 
 #[macro_export]
 macro_rules! backend_parse {
-    ($packages:ident, $($backend:ident),*) => {
+    ($packages:ident, $config:ident, $($backend:ident),*) => {
         [$(
             {let packages = $packages
                 .get(stringify!($backend))
@@ -69,7 +69,7 @@ macro_rules! backend_parse {
             match packages {
                 Some(packages) =>
                 Some(
-                    Backends::$backend($backend::new(packages)
+                    Backends::$backend($backend::new(packages, &$config)
                     .map_err(|e| {
                         log::error!("Error encountered in parsing {} packages", stringify!($backend));
                         mod_err!(e)
@@ -84,7 +84,7 @@ macro_rules! backend_parse {
 
 #[macro_export]
 macro_rules! parse_all_backends {
-    ($packages:ident) => {
-        backend_parse!($packages, Arch, Flatpak, Cargo, Rustup)
+    ($packages:ident, $config:ident) => {
+        backend_parse!($packages, $config, Arch, Flatpak, Cargo, Rustup)
     };
 }

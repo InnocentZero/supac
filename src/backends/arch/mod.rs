@@ -5,6 +5,7 @@ use nu_protocol::Value;
 use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{Perms, run_command, run_command_for_stdout};
+use crate::config::{ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER};
 use crate::parser::Engine;
 
 use super::Backend;
@@ -13,16 +14,13 @@ const PACKAGE_LIST_KEY: &str = "packages";
 const PACKAGE_KEY: &str = "package";
 const HOOK_KEY: &str = "post_hook";
 
-const DEFAULT_PACKAGE_MANAGER: &str = "paru";
-const ARCH_PACKAGE_MANAGER_KEY: &str = "arch_package_manager";
-
 #[derive(Clone, Debug)]
 pub struct Arch {
     packages: HashMap<String, Option<Closure>>,
 }
 
 impl Backend for Arch {
-    fn new(value: &Record) -> Result<Self> {
+    fn new(value: &Record, _config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Arch"))?
@@ -303,7 +301,7 @@ mod test {
         )
         .unwrap();
 
-        let arch = Arch::new(&record);
+        let arch = Arch::new(&record, &Record::new());
         assert!(arch.is_ok());
         let arch = arch.unwrap();
         assert_eq!(arch.packages.len(), 1);
@@ -338,7 +336,7 @@ mod test {
         )
         .unwrap();
 
-        let arch = Arch::new(&record);
+        let arch = Arch::new(&record, &Record::new());
         assert!(arch.is_err());
     }
 
@@ -379,7 +377,7 @@ mod test {
         )
         .unwrap();
 
-        let arch = Arch::new(&record);
+        let arch = Arch::new(&record, &Record::new());
         assert!(arch.is_err());
     }
 
@@ -417,7 +415,7 @@ mod test {
         )
         .unwrap();
 
-        let arch = Arch::new(&record);
+        let arch = Arch::new(&record, &Record::new());
         assert!(arch.is_err());
     }
 

@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
         .fetch(&contents)
         .map_err(|e| nest_errors!("Error encountered while parsing package spec", e))?;
 
-    let mut backends = parse_all_backends!(packages);
+    let mut backends = parse_all_backends!(packages, config);
 
     let results = backends.iter_mut().flat_map(|backend_opt| {
         backend_opt.as_mut().map(|backend| match &args.subcommand {

@@ -1,36 +1,41 @@
 use std::{env, fs::File, io::Write, path::PathBuf};
 
-use anyhow::{Context, Result};
-use log::{error, trace};
-use nu_protocol::{Record, Span};
+use anyhow::{Result, anyhow};
 
-// TODO: Change and implement using nu serde or json serde
-const KV_PAIRS: [(&str, &str); 1] = [("arch_package_manager", "paru")];
+use crate::{function, mod_err, nest_errors};
+
+pub const ARCH_PACKAGE_MANAGER_KEY: &str = "arch_package_manager";
+pub const DEFAULT_PACKAGE_MANAGER: &str = "paru";
+
+pub const FLATPAK_DEFAULT_SYSTEMWIDE_KEY: &str = "flatpak_default_systemwide";
+pub const DEFAULT_FLATPAK_SYSTEMWIDE: bool = false;
+
+const CONFIG: [(&str, &str); 2] = [
+    (ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER),
+    (FLATPAK_DEFAULT_SYSTEMWIDE_KEY, "false"),
+];
 
 pub fn get_config_path() -> Result<PathBuf> {
     let config_dir = if let Ok(config_dir) = env::var("SUPAC_HOME") {
-        trace!("$SUPAC_HOME was defined. Using the value {config_dir}");
+        log::trace!("$SUPAC_HOME was defined. Using the value {config_dir}");
         Ok(config_dir)
     } else if let Ok(config_dir) = env::var("XDG_CONFIG") {
-        trace!("$XDG_CONFIG was defined. Using the value {config_dir}");
+        log::trace!("$XDG_CONFIG was defined. Using the value {config_dir}");
         Ok(config_dir)
     } else if let Ok(home_dir) = env::var("HOME") {
-        trace!("$HOME was defined. Using the value {home_dir}/.config");
+        log::trace!("$HOME was defined. Using the value {home_dir}/.config");
         let config_dir = [home_dir.as_str(), ".config"].join("/");
         Ok(config_dir)
     } else {
         match env::var("USER") {
             Ok(user) => {
-                trace!("$USER was defined. Using the value /home/{user}/.config");
+                log::trace!("$USER was defined. Using the value /home/{user}/.config");
                 let config_dir = ["/home", user.as_str(), ".config"].join("/");
                 Ok(config_dir)
             }
-            Err(e) => {
-                error!(
-                    "None of the environment variables were defined to appropriately determine config directory."
-                );
-                Err(e)
-            }
+            Err(_) => Err(mod_err!(
+                "None of the environment variables were defined to appropriately determine config directory."
+            )),
         }
     };
 
@@ -40,44 +45,34 @@ pub fn get_config_path() -> Result<PathBuf> {
 }
 
 pub fn write_default_config(config_path: &PathBuf) -> Result<()> {
-    let mut config_file = File::create(config_path).context(
-        "
-        Failed to create or open file. It might be a permissions issue, 
-        since the relevant directories were created already.
-        ",
-    )?;
+    let mut config_file = File::create(config_path).map_err(|e| {
+        nest_errors!(
+            concat!(
+                "Failed to create or open file.",
+                "It might be a permissions issue",
+                " since the relevant directories were created already."
+            ),
+            e
+        )
+    })?;
 
-    let mut default_config = Record::new();
-    KV_PAIRS.iter().for_each(|(k, v)| {
-        default_config.insert(
-            k.to_string(),
-            nu_protocol::Value::String {
-                val: v.to_string(),
-                internal_span: Span::test_data(),
-            },
-        );
+    let mut config_spec = "{\n".to_owned();
+    CONFIG.iter().for_each(|(k, v)| {
+        config_spec.push_str(("    ".to_owned() + *k + " : " + v + ",\n").as_str());
     });
-    trace!("Built default config");
+    config_spec.push_str("}\n");
 
-    let mut config_spec = String::with_capacity(30);
-    config_spec.push_str("{\n");
-    let _ = default_config
-        .into_iter()
-        .map(|(opt, value)| {
-            config_spec.push_str(&opt);
-            config_spec.push_str(": ");
-            config_spec.push_str(value.as_str().unwrap());
-            config_spec.push('\n');
-        })
-        .collect::<Vec<()>>();
-    config_spec.push('}');
+    log::trace!("Built default config");
 
-    config_file.write_all(config_spec.as_bytes()).context(
-        "
-        Failed to write the default config to the file.
-        It could possibly be a permissions issue.
-        ",
-    )?;
+    config_file.write_all(config_spec.as_bytes()).map_err(|e| {
+        nest_errors!(
+            concat!(
+                "Failed to write the default config to the file.",
+                "It could possibly be a permissions issue.",
+            ),
+            e
+        )
+    })?;
 
     Ok(())
 }

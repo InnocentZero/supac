@@ -40,7 +40,7 @@ struct ToolchainSpec {
 }
 
 impl Backend for Rustup {
-    fn new(value: &Record) -> Result<Self> {
+    fn new(value: &Record, _config: &Record) -> Result<Self> {
         let toolchains = value
             .get(TOOLCHAIN_LIST_KEY)
             .ok_or(mod_err!("Failed to get toolchains for Rustup"))?
@@ -534,7 +534,7 @@ mod test {
         )
         .unwrap();
 
-        let result = Rustup::new(&outer_record);
+        let result = Rustup::new(&outer_record, &Record::new());
         assert!(result.is_ok());
     }
 
@@ -548,7 +548,7 @@ mod test {
         )
         .unwrap();
 
-        let result = Rustup::new(&outer_record);
+        let result = Rustup::new(&outer_record, &Record::new());
         assert!(result.is_err());
     }
 
