@@ -8,13 +8,26 @@ It is meant to emulate nix but without the headaches that come along with it. It
 not maintain packages by itself but rather hooks with the existing package managers on your
 system to configure them in a declarative fashion.
 
+** Install
+:PROPERTIES:
+:ID:       2f3fd273-9e3b-4f83-8053-49c493841891
+:END:
+
+Right now, the only way to install is via git
+
+#+begin_src shell
+  cargo install --git https://codeberg.org/innocentzer0/supac.git
+#+end_src
+
+To build it manually, clone the repo, ~cd~ into it, and run ~cargo build~
+
 ** Support
 :PROPERTIES:
 :ID:       2b69be5a-4830-485b-b321-dd27d3b51527
 :END:
 Right now the following package managers are supported:
 - Arch Linux 
-- Flatpak (user mode configuration)
+- Flatpak
 - Cargo
 - rustup
 
@@ -26,7 +39,7 @@ Right now the following package managers are supported:
 This is the order in which I wish to include package manager support:
 
 - +rustup+
-- uv
+- uv/pipx
 - opam
 - npm
 - dnf
@@ -41,11 +54,13 @@ This is the order in which I wish to include package manager support:
 - Allow disabling backends
 - +clean-cache command+
 - rebuild command
-- Flatpak systemwide installations
+- +Flatpak systemwide installations+
 - +=pacman= support for arch+
 - Config validation
 - allow setting config options for config-files whose config can be represented in a
   format parse-able by nushell
+- Allow dry-run
+- allow use of [[https://github.com/cargo-bins/cargo-binstall][cargo-binstall]] for cargo installations.
 
 ** Package declaration
 :PROPERTIES:
@@ -66,14 +81,14 @@ A brief rundown:
   - =features=: a list of features that the binary supports that it should be installed with
 - For =Flatpak=, it parses three subrecords:
   - =Pinned=: This is not compulsory, but this is a list of pinned runtimes, optionally specifying
-    the branch and the architecture, along with a post hook
+    the branch and the architecture, along with a post hook and a systemwide cofig
   - =Packages=: Like the other two, this specifies a list of package records. These may optionally
-    contain the remote from which to install, and a post hook
+    contain the remote from which to install, whether to install systemwide, and a post hook
   - =Remotes=: Useless as of now, will be useful once the =rebuild= command is released
 - For =Rustup=, it parses a record, where each field's name is the toolchain that you wish to
   install, and the entries are a list of target triples and a list of components. All targets
   must be explicitly stated. Default components can be skipped.
 
 Anything except the package name is not needed in a package specification. The file ~config.nu~
-in the same directory should return a record giving out the configuration. As of now, only one
-config option is implemented.
+in the same directory should return a record giving out the configuration. As of now, only two
+config options are implemented, which are fairly self-descriptive

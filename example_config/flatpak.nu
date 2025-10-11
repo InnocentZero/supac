@@ -10,12 +10,14 @@ let flatpak_packages =  {
       "package": "org.gtk.Gtk3theme.adw-gtk3",
       "branch": "stable", # branch of the pinned package
       "arch": "x86_64",
+      "systemwide": false, # whether this pin is a systemwide pin or not
       "post_hook": {|| echo foo}, # executed after the pin is installed
     },
   ]
   "packages": [ # only user flatpaks
     {
        "package": "com.github.flxzt.rnote",
+      "systemwide": true, # whether this package is systemwide or not
        "remote": "flathub", # flatpak remote from which to install the package
                             # must correspond to a valid remote on the system
                             # optional
