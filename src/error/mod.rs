@@ -35,7 +35,15 @@ macro_rules! concat_err {
 #[macro_export]
 macro_rules! nest_errors {
     ($parent:expr, $($children:ident),+) => {{
-        let errors = vec![anyhow!($parent).to_string(), $($children.to_string()),+].join("\n");
+        let errors = vec![
+                anyhow!($parent).to_string(),
+                $($children
+                      .to_string()
+                      .lines()
+                      .map(|s| "    ".to_owned() + s)
+                      .collect()),+
+            ]
+            .join("\n");
         anyhow!(
             "{} (in {} [{}:{}]) :: {}",
             function!(),
