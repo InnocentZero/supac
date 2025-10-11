@@ -115,7 +115,7 @@ fn main() -> anyhow::Result<()> {
         e
     })?;
     let mut config_engine = Engine::new(config_dir);
-    let mut config = config_engine.fetch(&config_contents).map_err(|e| {
+    let config = config_engine.fetch(&config_contents).map_err(|e| {
         log::error!("Error encountered while parsing config spec");
         mod_err!(e)
     })?;
@@ -138,8 +138,8 @@ fn main() -> anyhow::Result<()> {
 
     let results = backends.iter_mut().flat_map(|backend_opt| {
         backend_opt.as_mut().map(|backend| match &args.subcommand {
-            SubCommand::Clean(_clean_command) => backend.remove(&mut config),
-            SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
+            SubCommand::Clean(_clean_command) => backend.remove(),
+            SubCommand::Sync(_sync_command) => backend.install(&mut engine),
             SubCommand::Unmanaged(_unmanaged_command) => todo!("Not implemented yet"),
             SubCommand::Validate(_validate_command) => todo!("Not implemented yet"),
             SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),

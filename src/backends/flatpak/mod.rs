@@ -98,7 +98,7 @@ impl Backend for Flatpak {
         })
     }
 
-    fn install(&self, engine: &mut Engine, _: &mut Record) -> Result<()> {
+    fn install(&self, engine: &mut Engine) -> Result<()> {
         let mut closures = Vec::new();
 
         let installed_user_packages = run_command_for_stdout(
@@ -131,7 +131,7 @@ impl Backend for Flatpak {
             .map_err(|e| nest_errors!("Failed to execute post hooks", e))
     }
 
-    fn remove(&self, _: &mut Record) -> Result<()> {
+    fn remove(&self) -> Result<()> {
         self.remove_pins(false)?;
         self.remove_pins(true)?;
 

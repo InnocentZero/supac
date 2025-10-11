@@ -53,7 +53,7 @@ impl Backend for Rustup {
         Ok(Rustup { toolchains })
     }
 
-    fn install(&self, _engine: &mut Engine, _config: &mut Record) -> Result<()> {
+    fn install(&self, _engine: &mut Engine) -> Result<()> {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.install_toolchains(installed_toolchains.as_ref())?;
@@ -65,7 +65,7 @@ impl Backend for Rustup {
         Ok(())
     }
 
-    fn remove(&self, _config: &mut Record) -> Result<()> {
+    fn remove(&self) -> Result<()> {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.remove_toolchains(installed_toolchains.as_ref())?;

@@ -17,10 +17,12 @@ const HOOK_KEY: &str = "post_hook";
 #[derive(Clone, Debug)]
 pub struct Arch {
     packages: HashMap<String, Option<Closure>>,
+    package_manager: String,
+    perms: Perms,
 }
 
 impl Backend for Arch {
-    fn new(value: &Record, _config: &Record) -> Result<Self> {
+    fn new(value: &Record, config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Arch"))?
@@ -30,12 +32,18 @@ impl Backend for Arch {
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
 
+        let (package_manager, perms) = get_package_manager(config)?;
+
         log::info!("Successfully parsed arch packages");
-        Ok(Arch { packages })
+        Ok(Arch {
+            packages,
+            package_manager: package_manager.to_owned(),
+            perms,
+        })
     }
 
-    fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()> {
-        let (package_manager, perms) = get_package_manager(config)?;
+    fn install(&self, engine: &mut Engine) -> Result<()> {
+        let package_manager = &self.package_manager;
 
         let installed = get_installed_packages(package_manager)?;
 
@@ -43,7 +51,7 @@ impl Backend for Arch {
 
         let groups = run_command_for_stdout(
             [package_manager, "--sync", "--quiet", "--groups"],
-            perms,
+            self.perms,
             false,
         )
         .map_err(|e| anyhow!("Failed to get group packages\n {e}"))?;
@@ -98,8 +106,8 @@ impl Backend for Arch {
             .map_err(|e| anyhow!("Failed to execute closures\n {e}"))
     }
 
-    fn remove(&self, config: &mut Record) -> Result<()> {
-        let (package_manager, perms) = get_package_manager(config)?;
+    fn remove(&self) -> Result<()> {
+        let package_manager = &self.package_manager;
 
         let installed = get_installed_packages(package_manager)?;
 
@@ -107,7 +115,7 @@ impl Backend for Arch {
 
         let groups = run_command_for_stdout(
             [package_manager, "--sync", "--quiet", "--groups"],
-            perms,
+            self.perms,
             false,
         )?;
 

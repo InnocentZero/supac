@@ -22,29 +22,29 @@ pub enum Backends {
 
 pub trait Backend {
     fn clean_cache(&self, config: &Record) -> Result<()>;
-    fn install(&self, engine: &mut Engine, config: &mut Record) -> Result<()>;
+    fn install(&self, engine: &mut Engine) -> Result<()>;
     fn new(value: &Record, config: &Record) -> Result<Self>
     where
         Self: Sized;
-    fn remove(&self, config: &mut Record) -> Result<()>;
+    fn remove(&self) -> Result<()>;
 }
 
 impl Backends {
-    pub fn install(&mut self, engine: &mut Engine, config: &mut Record) -> Result<()> {
+    pub fn install(&mut self, engine: &mut Engine) -> Result<()> {
         match self {
-            Backends::Arch(arch) => arch.install(engine, config),
-            Backends::Flatpak(flatpak) => flatpak.install(engine, config),
-            Backends::Cargo(cargo) => cargo.install(engine, config),
-            Backends::Rustup(rustup) => rustup.install(engine, config),
+            Backends::Arch(arch) => arch.install(engine),
+            Backends::Flatpak(flatpak) => flatpak.install(engine),
+            Backends::Cargo(cargo) => cargo.install(engine),
+            Backends::Rustup(rustup) => rustup.install(engine),
         }
     }
 
-    pub fn remove(&mut self, config: &mut Record) -> Result<()> {
+    pub fn remove(&mut self) -> Result<()> {
         match self {
-            Backends::Arch(arch) => arch.remove(config),
-            Backends::Flatpak(flatpak) => flatpak.remove(config),
-            Backends::Cargo(cargo) => cargo.remove(config),
-            Backends::Rustup(rustup) => rustup.remove(config),
+            Backends::Arch(arch) => arch.remove(),
+            Backends::Flatpak(flatpak) => flatpak.remove(),
+            Backends::Cargo(cargo) => cargo.remove(),
+            Backends::Rustup(rustup) => rustup.remove(),
         }
     }
 

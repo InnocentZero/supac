@@ -49,7 +49,7 @@ impl Backend for Cargo {
         Ok(Cargo { packages })
     }
 
-    fn install(&self, engine: &mut Engine, _config: &mut Record) -> Result<()> {
+    fn install(&self, engine: &mut Engine) -> Result<()> {
         let packages = get_installed_packages()?;
 
         let configured_packages = &self.packages;
@@ -74,7 +74,7 @@ impl Backend for Cargo {
             .inspect(|_| log::info!("Successfully executed all the post hooks"))
     }
 
-    fn remove(&self, _config: &mut Record) -> Result<()> {
+    fn remove(&self) -> Result<()> {
         let packages = get_installed_packages()?;
         log::info!("Successfully parsed installed packages");
 
