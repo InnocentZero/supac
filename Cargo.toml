@@ -45,3 +45,8 @@ use_debug = "warn"
 used_underscore_binding = "warn"
 useless_let_if_seq = "warn"
 wildcard_dependencies = "warn"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
