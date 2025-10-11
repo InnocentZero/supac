@@ -37,7 +37,7 @@ enum SubCommand {
     Clean(CleanCommand),
     Sync(SyncCommand),
     Unmanaged(UnmanagedCommand),
-    Backends(BackendsCommand),
+    Validate(ValidateCommand),
     CleanCache(CleanCacheCommand),
 }
 
@@ -66,8 +66,8 @@ struct UnmanagedCommand;
 
 #[derive(Args)]
 #[command(visible_alias("b"))]
-/// show the backends found
-struct BackendsCommand;
+/// show the backends found and validate their configs
+struct ValidateCommand;
 
 #[derive(Args)]
 #[command(visible_alias("e"))]
@@ -140,8 +140,8 @@ fn main() -> anyhow::Result<()> {
         backend_opt.as_mut().map(|backend| match &args.subcommand {
             SubCommand::Clean(_clean_command) => backend.remove(&mut config),
             SubCommand::Sync(_sync_command) => backend.install(&mut engine, &mut config),
-            SubCommand::Unmanaged(_unmanaged_command) => todo!(),
-            SubCommand::Backends(_backends_command) => todo!(),
+            SubCommand::Unmanaged(_unmanaged_command) => todo!("Not implemented yet"),
+            SubCommand::Validate(_validate_command) => todo!("Not implemented yet"),
             SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
         })
     });
