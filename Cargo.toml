@@ -1,6 +1,6 @@
 [package]
 name = "supac"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["innocentzer0 <1nn0c3n7z3r0@proton.me>"]
 description = "A declarative package manager for linux"
@@ -10,6 +10,11 @@ license = "MIT OR Apache-2.0"
 exclude = [
   "example_config/*",
 ]
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "https://codeberg.org/innocentzer0/supac/releases/download/{ version }/supac.tgz"
+bin-path = "supac"
+pkg-fmt = "tgz"
 
 [dependencies]
 anyhow = "1.0.95"
