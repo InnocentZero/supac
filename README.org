@@ -13,7 +13,13 @@ system to configure them in a declarative fashion.
 :ID:       2f3fd273-9e3b-4f83-8053-49c493841891
 :END:
 
-Right now, the only way to install is via git
+#+begin_src shell
+  cargo install supac
+  # alternately, if you use cargo-binstall
+  cargo binstall supac
+#+end_src
+
+Install via git
 
 #+begin_src shell
   cargo install --git https://codeberg.org/innocentzer0/supac.git
