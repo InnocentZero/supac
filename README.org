@@ -21,14 +21,21 @@ Right now, the only way to install is via git
 
 To build it manually, clone the repo, ~cd~ into it, and run ~cargo build~
 
+** Chat
+:PROPERTIES:
+:ID:       bd7c28ed-8958-4722-8c8c-882699b20572
+:END:
+
+Join us at [[https://matrix.to/#/%23supac:matrix.org][matrix]] for discussion and support!
+
 ** Support
 :PROPERTIES:
 :ID:       2b69be5a-4830-485b-b321-dd27d3b51527
 :END:
 Right now the following package managers are supported:
-- Arch Linux 
+- Arch Linux (any package manager that respects pacman's flags)
 - Flatpak
-- Cargo
+- Cargo (both native toolchain and cargo-binstall)
 - rustup
 
 ** Checklist of package managers
@@ -49,18 +56,22 @@ This is the order in which I wish to include package manager support:
 :ID:       576a42fc-9fe5-411a-9dc8-490b7b31ab26
 :END:
 
+- Allow dry-run
+- Add support for more package managers
+- Config validation
+- rebuild command
 - Show unmanaged packages
+- allow setting config options for config-files whose config can be represented in a
+  format parse-able by nushell
 - list active backends
 - Allow disabling backends
 - +clean-cache command+
-- rebuild command
 - +Flatpak systemwide installations+
 - +=pacman= support for arch+
-- Config validation
-- allow setting config options for config-files whose config can be represented in a
-  format parse-able by nushell
-- Allow dry-run
-- allow use of [[https://github.com/cargo-bins/cargo-binstall][cargo-binstall]] for cargo installations.
+- +allow use of [[https://github.com/cargo-bins/cargo-binstall][cargo-binstall]] for cargo installations+
+
+This is more or less a priority list on how I'd make updates to the repo. If you have any special
+requests, please open an issue! Please note that codeberg issues take precedence.
 
 ** Package declaration
 :PROPERTIES:
@@ -90,5 +101,37 @@ A brief rundown:
   must be explicitly stated. Default components can be skipped.
 
 Anything except the package name is not needed in a package specification. The file ~config.nu~
-in the same directory should return a record giving out the configuration. As of now, only two
-config options are implemented, which are fairly self-descriptive
+in the same directory should return a record giving out the configuration. As of now, only three
+config options are implemented, which are fairly self-descriptive.
+
+* Copyright notice
+:PROPERTIES:
+:ID:       8383d887-a3de-4385-a4d1-3a76a86076ae
+:END:
+** Short version
+:PROPERTIES:
+:ID:       8390a8ae-6208-47d0-b113-161df5d29ed6
+:END:
+
+Copyright (c) 2025 innocentzer0 (on codeberg)
+
+This project is licensed under the terms of either Apache 2.0 or MIT license at your option.
+
+#+begin_example
+SPDX-License-Identifier: MIT OR Apache-2.0
+#+end_example
+
+** Long version
+:PROPERTIES:
+:ID:       8bb9c1f6-2713-427b-abb5-1dcddd748bfa
+:END:
+
+Copyright (c) 2025 innocentzer0 (on codeberg)
+
+Copyrights in this project are retained by contributors. No copyright assignment
+is required to contribute to this project.
+
+Except as otherwise noted (below and/or in individual files), this project is
+licensed under the Apache License, Version 2.0
+([[./LICENSE-APACHE][LICENSE-APACHE]] or http://www.apache.org/licenses/LICENSE-2.0) or the MIT license,
+([[./LICENSE-MIT][LICENSE-MIT]] or http://opensource.org/licenses/MIT), at your option.
