@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{Perms, run_command, run_command_for_stdout};
+use crate::config::{CARGO_USE_BINSTALL_KEY, DEFAULT_CARGO_USE_BINSTALL};
 use crate::parser::Engine;
 use crate::{function, mod_err, nest_errors};
 
@@ -31,10 +32,11 @@ pub struct CargoOpts {
 #[derive(Clone, Debug)]
 pub struct Cargo {
     packages: HashMap<String, CargoOpts>,
+    installopt: &'static str,
 }
 
 impl Backend for Cargo {
-    fn new(value: &Record, _config: &Record) -> Result<Self> {
+    fn new(value: &Record, config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
             .ok_or(mod_err!("Failed to get packages for Cargo"))?
@@ -46,7 +48,16 @@ impl Backend for Cargo {
 
         log::info!("Parsed cargo packages from spec");
 
-        Ok(Cargo { packages })
+        let installopt = if get_binstall_opt(config)? {
+            "binstall"
+        } else {
+            "install"
+        };
+
+        Ok(Cargo {
+            packages,
+            installopt,
+        })
     }
 
     fn install(&self, engine: &mut Engine) -> Result<()> {
@@ -63,7 +74,7 @@ impl Backend for Cargo {
             if let Some(hook) = spec.post_hook.as_ref() {
                 post_hooks.push(hook);
             }
-            install_package(name, spec)
+            install_package(name, spec, self.installopt)
         })?;
 
         log::info!("Successfully installed missing packages");
@@ -104,6 +115,18 @@ impl Backend for Cargo {
         }
 
         Ok(())
+    }
+}
+
+fn get_binstall_opt(config: &Record) -> Result<bool> {
+    match config.get(CARGO_USE_BINSTALL_KEY) {
+        Some(opt) => opt.as_bool().map_err(|e| {
+            nest_errors!(
+                "Failed to parse config, cargo binstall option not a bool",
+                e
+            )
+        }),
+        None => Ok(DEFAULT_CARGO_USE_BINSTALL),
     }
 }
 
@@ -230,7 +253,7 @@ fn get_installed_packages() -> Result<HashSet<String>> {
     Ok(packages)
 }
 
-fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
+fn install_package(name: &str, spec: &CargoOpts, installer: &str) -> Result<()> {
     let git = Some("--git")
         .into_iter()
         .chain(spec.git_remote.as_deref())
@@ -249,7 +272,7 @@ fn install_package(name: &str, spec: &CargoOpts) -> Result<()> {
         .chain(spec.features.iter().map(String::as_str))
         .filter(|_| !spec.features.is_empty());
 
-    let command = ["cargo", "install"]
+    let command = ["cargo", installer]
         .into_iter()
         .chain(git)
         .chain(all_features)

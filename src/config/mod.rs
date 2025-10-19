@@ -10,9 +10,13 @@ pub const DEFAULT_PACKAGE_MANAGER: &str = "paru";
 pub const FLATPAK_DEFAULT_SYSTEMWIDE_KEY: &str = "flatpak_default_systemwide";
 pub const DEFAULT_FLATPAK_SYSTEMWIDE: bool = false;
 
-const CONFIG: [(&str, &str); 2] = [
+pub const CARGO_USE_BINSTALL_KEY: &str = "cargo_use_binstall";
+pub const DEFAULT_CARGO_USE_BINSTALL: bool = false;
+
+const CONFIG: [(&str, &str); 3] = [
     (ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER),
     (FLATPAK_DEFAULT_SYSTEMWIDE_KEY, "false"),
+    (CARGO_USE_BINSTALL_KEY, "false"),
 ];
 
 pub fn get_config_path() -> Result<PathBuf> {
