@@ -7,6 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, run_command, run_command_for_stdout};
 use crate::config::{ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER};
 use crate::parser::Engine;
+use crate::{function, nest_errors};
 
 use super::Backend;
 
@@ -27,7 +28,7 @@ impl Backend for Arch {
             .get(PACKAGE_LIST_KEY)
             .ok_or(anyhow!("Failed to get packages for Arch"))?
             .as_list()
-            .map_err(|e| anyhow!("The package list in Arch is not a list\n {e}"))?
+            .map_err(|e| nest_errors!("The package list in Arch is not a list", e))?
             .iter()
             .map(value_to_pkgspec)
             .collect::<Result<_>>()?;
@@ -54,7 +55,7 @@ impl Backend for Arch {
             self.perms,
             false,
         )
-        .map_err(|e| anyhow!("Failed to get group packages\n {e}"))?;
+        .map_err(|e| nest_errors!("Failed to get group packages", e))?;
 
         let mut closures = Vec::new();
 
@@ -97,13 +98,13 @@ impl Backend for Arch {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully installed arch packages"))
-        .map_err(|e| anyhow!("Failed to install packages\n {e}"))?;
+        .map_err(|e| nest_errors!("Failed to install packages", e))?;
 
         closures
             .iter()
             .try_for_each(|closure| engine.execute_closure(closure))
             .inspect(|_| log::info!("Successfully executed all closures"))
-            .map_err(|e| anyhow!("Failed to execute closures\n {e}"))
+            .map_err(|e| nest_errors!("Failed to execute closures", e))
     }
 
     fn remove(&self) -> Result<()> {
@@ -150,7 +151,7 @@ impl Backend for Arch {
                 Perms::User,
             )
             .inspect(|_| log::info!("Removed extra packages"))
-            .map_err(|e| anyhow!("Failed to remove packages\n {e}"))
+            .map_err(|e| nest_errors!("Failed to remove packages", e))
         }
     }
 
@@ -193,20 +194,20 @@ impl Backend for Arch {
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully removed all unused dependencies"))
-        .map_err(|e| anyhow!("Failed to clean cache for arch\n {e}"))
+        .map_err(|e| nest_errors!("Failed to clean cache for arch", e))
     }
 }
 
 fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
     let record = value
         .as_record()
-        .map_err(|e| anyhow!("The package-spec is not a record\n {e}"))?;
+        .map_err(|e| nest_errors!("The package-spec is not a record", e))?;
 
     let package = record
         .get(PACKAGE_KEY)
         .ok_or(anyhow!("No package mentioned"))?
         .as_str()
-        .map_err(|e| anyhow!("The package was not a string\n {e}"))?
+        .map_err(|e| nest_errors!("The package was not a string", e))?
         .to_owned();
 
     let post_hook = record
@@ -235,7 +236,7 @@ fn get_installed_packages(package_manager: &str) -> Result<HashSet<String>> {
         Perms::User,
         false,
     )
-    .map_err(|e| anyhow!("Failed to get installed packages for {package_manager}\n {e}"))?;
+    .map_err(|e| nest_errors!("Failed to get installed packages for {package_manager}", e))?;
 
     let packages = packages
         .lines()
@@ -252,7 +253,7 @@ fn get_installed_group_packages(group: &str, package_manager: &str) -> Result<Bo
         Perms::User,
         false,
     )
-    .map_err(|e| anyhow!("failed to get package groups with {package_manager}\n {e}"))?;
+    .map_err(|e| nest_errors!("failed to get package groups with {package_manager}", e))?;
 
     let packages = packages
         .lines()
@@ -266,7 +267,10 @@ fn get_installed_group_packages(group: &str, package_manager: &str) -> Result<Bo
 fn get_package_manager(config: &Record) -> Result<(&str, Perms)> {
     let pacman = match config.get(ARCH_PACKAGE_MANAGER_KEY) {
         Some(pacman) => pacman.as_str().map_err(|e| {
-            anyhow!("Failed to parse config, arch package manager is not a string\n {e}")
+            nest_errors!(
+                "Failed to parse config, arch package manager is not a string",
+                e
+            )
         })?,
         None => DEFAULT_PACKAGE_MANAGER,
     };
