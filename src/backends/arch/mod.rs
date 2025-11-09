@@ -72,11 +72,6 @@ impl Backend for Arch {
 
         let missing = &mut configured
             .into_iter()
-            .inspect(|package| {
-                if let Some(closure) = self.packages.get(*package).unwrap().as_ref() {
-                    closures.push(closure);
-                }
-            })
             .chain(
                 configured_group_packages
                     .iter()
@@ -84,6 +79,14 @@ impl Backend for Arch {
                     .map(String::as_str),
             )
             .filter(|package| !installed.contains(*package))
+            .inspect(|package| {
+                // some packages may not have a corresponding entry in the
+                // map since we're also going over packages that are not there
+                // in the config (the packages resolved from package groups)
+                if let Some(closure) = self.packages.get(*package).unwrap_or(&None).as_ref() {
+                    closures.push(closure);
+                }
+            })
             .peekable();
 
         log::info!("Successfully found all missing arch packages");
