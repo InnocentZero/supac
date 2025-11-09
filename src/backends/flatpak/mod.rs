@@ -4,10 +4,10 @@ use anyhow::{Result, anyhow};
 use nu_protocol::Value;
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, run_command, run_command_for_stdout};
+use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{DEFAULT_FLATPAK_SYSTEMWIDE, FLATPAK_DEFAULT_SYSTEMWIDE_KEY};
 use crate::parser::Engine;
-use crate::{function, mod_err, nest_errors};
+use crate::{CleanCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -131,12 +131,12 @@ impl Backend for Flatpak {
             .map_err(|e| nest_errors!("Failed to execute post hooks", e))
     }
 
-    fn remove(&self) -> Result<()> {
-        self.remove_pins(false)?;
-        self.remove_pins(true)?;
+    fn remove(&self, opts: &CleanCommand) -> Result<()> {
+        self.remove_pins(false, opts)?;
+        self.remove_pins(true, opts)?;
 
-        self.remove_packages(false)?;
-        self.remove_packages(true)
+        self.remove_packages(false, opts)?;
+        self.remove_packages(true, opts)
     }
 
     fn clean_cache(&self, _config: &Record) -> Result<()> {
@@ -295,7 +295,7 @@ impl Flatpak {
         Ok(())
     }
 
-    fn remove_pins(&self, systemwide: bool) -> Result<()> {
+    fn remove_pins(&self, systemwide: bool, opts: &CleanCommand) -> Result<()> {
         let (systemwide_flag, configured_pins) = if systemwide {
             ("--system", &self.system_pinned)
         } else {
@@ -310,9 +310,15 @@ impl Flatpak {
             .map(|runtime| runtime.trim())
             .map(|runtime| parse_runtime_format(runtime, false));
 
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
         pins.filter(|(runtime, _)| !configured_pins.contains_key(*runtime))
             .try_for_each(|(pin, _)| {
-                run_command(
+                command_action(
                     ["flatpak", "pin", "--remove", systemwide_flag, pin],
                     Perms::User,
                 )
@@ -321,7 +327,7 @@ impl Flatpak {
             .map_err(|e| nest_errors!("Failed to remove pinned packages", e))
     }
 
-    fn remove_packages(&self, systemwide: bool) -> Result<()> {
+    fn remove_packages(&self, systemwide: bool, opts: &CleanCommand) -> Result<()> {
         let (systemwide_flag, configured_packages) = if systemwide {
             ("--system", &self.system_packages)
         } else {
@@ -345,7 +351,13 @@ impl Flatpak {
             .lines()
             .filter(|package| !configured_packages.contains_key(*package));
 
-        run_command(
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
+        command_action(
             ["flatpak", "remove", systemwide_flag, "--delete-data"]
                 .into_iter()
                 .chain(extra_packages),

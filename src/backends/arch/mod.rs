@@ -4,10 +4,10 @@ use anyhow::{Result, anyhow};
 use nu_protocol::Value;
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, run_command, run_command_for_stdout};
+use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER};
 use crate::parser::Engine;
-use crate::{function, nest_errors};
+use crate::{CleanCommand, function, nest_errors};
 
 use super::Backend;
 
@@ -107,7 +107,7 @@ impl Backend for Arch {
             .map_err(|e| nest_errors!("Failed to execute closures", e))
     }
 
-    fn remove(&self) -> Result<()> {
+    fn remove(&self, opts: &CleanCommand) -> Result<()> {
         let package_manager = &self.package_manager;
 
         let installed = get_installed_packages(package_manager)?;
@@ -134,11 +134,17 @@ impl Backend for Arch {
 
         let mut extra = installed.difference(&configured_packages).peekable();
 
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
         if extra.peek().is_none() {
             log::info!("No extra packages to remove!");
             Ok(())
         } else {
-            run_command(
+            command_action(
                 [
                     package_manager,
                     "--remove",

@@ -4,10 +4,10 @@ use std::fs;
 use anyhow::{Context, Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, run_command, run_command_for_stdout};
+use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{CARGO_USE_BINSTALL_KEY, DEFAULT_CARGO_USE_BINSTALL};
 use crate::parser::Engine;
-use crate::{function, mod_err, nest_errors};
+use crate::{CleanCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -85,16 +85,23 @@ impl Backend for Cargo {
             .inspect(|_| log::info!("Successfully executed all the post hooks"))
     }
 
-    fn remove(&self) -> Result<()> {
+    fn remove(&self, opts: &CleanCommand) -> Result<()> {
         let packages = get_installed_packages()?;
         log::info!("Successfully parsed installed packages");
 
         let configured_packages = &self.packages;
+
+        let command_action: fn([&str; 3], Perms) -> Result<()> = if opts.dry_run {
+            |args, perms| dry_run_command(args, perms)
+        } else {
+            |args, perms| run_command(args, perms)
+        };
+
         packages
             .into_iter()
             .filter(|package| !configured_packages.contains_key(package))
             .try_for_each(|package| {
-                run_command(["cargo", "uninstall", package.as_str()], Perms::User)
+                command_action(["cargo", "uninstall", package.as_str()], Perms::User)
                     .map_err(|e| nest_errors!("Failed to uninstall {package}", e))
             })
             .inspect(|_| log::info!("Successfully removed extraneous packages"))

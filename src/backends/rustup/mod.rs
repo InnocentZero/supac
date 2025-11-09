@@ -4,7 +4,8 @@ use anyhow::{Result, anyhow};
 use nu_protocol::{Record, Value};
 
 use crate::{
-    commands::{Perms, run_command, run_command_for_stdout},
+    CleanCommand,
+    commands::{Perms, dry_run_command, run_command, run_command_for_stdout},
     function, mod_err, nest_errors,
     parser::Engine,
 };
@@ -65,13 +66,13 @@ impl Backend for Rustup {
         Ok(())
     }
 
-    fn remove(&self) -> Result<()> {
+    fn remove(&self, opts: &CleanCommand) -> Result<()> {
         let installed_toolchains = get_installed_toolchains()?;
 
-        self.remove_toolchains(installed_toolchains.as_ref())?;
+        self.remove_toolchains(installed_toolchains.as_ref(), opts)?;
         log::info!("Removed extra toolchains");
 
-        self.remove_extra(installed_toolchains.as_ref())?;
+        self.remove_extra(installed_toolchains.as_ref(), opts)?;
         log::info!("Removed extra components and targets");
 
         Ok(())
@@ -115,7 +116,11 @@ impl Rustup {
         Ok(())
     }
 
-    fn remove_toolchains(&self, installed_toolchains: &[String]) -> Result<()> {
+    fn remove_toolchains(
+        &self,
+        installed_toolchains: &[String],
+        opts: &CleanCommand,
+    ) -> Result<()> {
         let configured_toolchains = &self.toolchains;
 
         let mut extra_toolchains = installed_toolchains
@@ -129,11 +134,17 @@ impl Rustup {
             .map(String::as_str)
             .peekable();
 
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
         if extra_toolchains.peek().is_none() {
             log::debug!("No extra toolchains to remove!");
             Ok(())
         } else {
-            run_command(
+            command_action(
                 ["rustup", "toolchain", "remove"]
                     .into_iter()
                     .chain(extra_toolchains),
@@ -144,7 +155,7 @@ impl Rustup {
         }
     }
 
-    fn remove_extra(&self, installed_toolchains: &[String]) -> Result<()> {
+    fn remove_extra(&self, installed_toolchains: &[String], opts: &CleanCommand) -> Result<()> {
         let configured_toolchains = &self.toolchains;
 
         let present_toolchains = installed_toolchains.iter().flat_map(|toolchain| {
@@ -156,8 +167,8 @@ impl Rustup {
         for toolchain in present_toolchains {
             let toolchain_spec = self.toolchains.get(toolchain).unwrap();
 
-            remove_extra_targets(toolchain, &toolchain_spec.targets)?;
-            remove_extra_components(toolchain, &toolchain_spec.components)?;
+            remove_extra_targets(toolchain, &toolchain_spec.targets, opts)?;
+            remove_extra_components(toolchain, &toolchain_spec.components, opts)?;
         }
 
         Ok(())
@@ -270,7 +281,11 @@ fn install_missing_components(toolchain: &String, configured_components: &[Strin
     }
 }
 
-fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Result<()> {
+fn remove_extra_targets(
+    toolchain: &str,
+    configured_targets: &[String],
+    opts: &CleanCommand,
+) -> Result<()> {
     let installed_targets = get_installed_targets(toolchain)?;
 
     let mut extra_targets = installed_targets
@@ -279,11 +294,17 @@ fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Resul
         .map(String::as_str)
         .peekable();
 
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
     if extra_targets.peek().is_none() {
         log::debug!("No extra targets to remove for {toolchain}!");
         Ok(())
     } else {
-        run_command(
+        command_action(
             ["rustup", "target", "remove", "--toolchain", toolchain]
                 .into_iter()
                 .chain(extra_targets),
@@ -294,7 +315,11 @@ fn remove_extra_targets(toolchain: &str, configured_targets: &[String]) -> Resul
     }
 }
 
-fn remove_extra_components(toolchain: &str, configured_components: &[String]) -> Result<()> {
+fn remove_extra_components(
+    toolchain: &str,
+    configured_components: &[String],
+    opts: &CleanCommand,
+) -> Result<()> {
     let installed_components = get_installed_components(toolchain)?;
 
     let mut extra_components = installed_components
@@ -309,11 +334,17 @@ fn remove_extra_components(toolchain: &str, configured_components: &[String]) ->
         .map(String::as_str)
         .peekable();
 
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
     if extra_components.peek().is_none() {
         log::debug!("No extra components to remove for {toolchain}!");
         Ok(())
     } else {
-        run_command(
+        command_action(
             ["rustup", "component", "remove", "--toolchain", toolchain]
                 .into_iter()
                 .chain(extra_components),

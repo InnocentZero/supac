@@ -5,7 +5,7 @@ pub use flatpak::Flatpak;
 use nu_protocol::Record;
 pub use rustup::Rustup;
 
-use crate::parser::Engine;
+use crate::{CleanCommand, parser::Engine};
 
 mod arch;
 mod cargo;
@@ -26,7 +26,7 @@ pub trait Backend {
     fn new(value: &Record, config: &Record) -> Result<Self>
     where
         Self: Sized;
-    fn remove(&self) -> Result<()>;
+    fn remove(&self, opts: &CleanCommand) -> Result<()>;
 }
 
 impl Backends {
@@ -39,12 +39,12 @@ impl Backends {
         }
     }
 
-    pub fn remove(&mut self) -> Result<()> {
+    pub fn remove(&mut self, opts: &CleanCommand) -> Result<()> {
         match self {
-            Backends::Arch(arch) => arch.remove(),
-            Backends::Flatpak(flatpak) => flatpak.remove(),
-            Backends::Cargo(cargo) => cargo.remove(),
-            Backends::Rustup(rustup) => rustup.remove(),
+            Backends::Arch(arch) => arch.remove(opts),
+            Backends::Flatpak(flatpak) => flatpak.remove(opts),
+            Backends::Cargo(cargo) => cargo.remove(opts),
+            Backends::Rustup(rustup) => rustup.remove(opts),
         }
     }
 

@@ -15,17 +15,7 @@ where
     S: Into<String>,
     I: IntoIterator<Item = S>,
 {
-    let args: Vec<String> = args.into_iter().map(Into::into).collect::<Vec<_>>();
-
-    if args.is_empty() {
-        return Err(mod_err!("cannot run an empty command"));
-    }
-
-    let args = Some("sudo".to_string())
-        .filter(|_| perms == Perms::Root)
-        .into_iter()
-        .chain(args)
-        .collect::<Vec<_>>();
+    let args = get_command(args, perms)?;
 
     let (first_arg, remaining_args) = args.split_first().unwrap();
 
@@ -53,17 +43,7 @@ where
     S: Into<String>,
     I: IntoIterator<Item = S>,
 {
-    let args: Vec<String> = args.into_iter().map(Into::into).collect::<Vec<_>>();
-
-    if args.is_empty() {
-        return Err(mod_err!("cannot run an empty command"));
-    }
-
-    let args = Some("sudo".to_string())
-        .filter(|_| perms == Perms::Root)
-        .into_iter()
-        .chain(args)
-        .collect::<Vec<_>>();
+    let args = get_command(args, perms)?;
 
     let (first_arg, remaining_args) = args.split_first().unwrap();
 
@@ -80,4 +60,39 @@ where
     } else {
         Err(mod_err!("command failed: {:?}", args.join(" ")))
     }
+}
+
+pub fn dry_run_command<I, S>(args: I, perms: Perms) -> Result<()>
+where
+    S: Into<String>,
+    I: IntoIterator<Item = S>,
+{
+    let command = get_command(args, perms)?;
+    let command_str = "DRY RUN> ".to_owned() + command.join(" ").as_str();
+
+    #[allow(clippy::print_stderr)]
+    {
+        eprintln!("{command_str}");
+    }
+    Ok(())
+}
+
+fn get_command<I, S>(args: I, perms: Perms) -> Result<Vec<String>>
+where
+    S: Into<String>,
+    I: IntoIterator<Item = S>,
+{
+    let args: Vec<String> = args.into_iter().map(Into::into).collect();
+
+    if args.is_empty() {
+        return Err(mod_err!("cannot run an empty command"));
+    }
+
+    let command = Some("sudo".to_string())
+        .filter(|_| perms == Perms::Root)
+        .into_iter()
+        .chain(args)
+        .collect();
+
+    Ok(command)
 }
