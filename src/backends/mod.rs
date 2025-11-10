@@ -5,7 +5,7 @@ pub use flatpak::Flatpak;
 use nu_protocol::Record;
 pub use rustup::Rustup;
 
-use crate::{CleanCommand, SyncCommand, parser::Engine};
+use crate::{CleanCacheCommand, CleanCommand, SyncCommand, parser::Engine};
 
 mod arch;
 mod cargo;
@@ -21,7 +21,7 @@ pub enum Backends {
 }
 
 pub trait Backend {
-    fn clean_cache(&self, config: &Record) -> Result<()>;
+    fn clean_cache(&self, config: &Record, opts: &CleanCacheCommand) -> Result<()>;
     fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()>;
     fn new(value: &Record, config: &Record) -> Result<Self>
     where
@@ -48,12 +48,12 @@ impl Backends {
         }
     }
 
-    pub fn clean_cache(&mut self, config: &Record) -> Result<()> {
+    pub fn clean_cache(&mut self, config: &Record, opts: &CleanCacheCommand) -> Result<()> {
         match self {
-            Backends::Arch(arch) => arch.clean_cache(config),
-            Backends::Flatpak(flatpak) => flatpak.clean_cache(config),
-            Backends::Cargo(cargo) => cargo.clean_cache(config),
-            Backends::Rustup(rustup) => rustup.clean_cache(config),
+            Backends::Arch(arch) => arch.clean_cache(config, opts),
+            Backends::Flatpak(flatpak) => flatpak.clean_cache(config, opts),
+            Backends::Cargo(cargo) => cargo.clean_cache(config, opts),
+            Backends::Rustup(rustup) => rustup.clean_cache(config, opts),
         }
     }
 }

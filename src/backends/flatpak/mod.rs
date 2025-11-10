@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{DEFAULT_FLATPAK_SYSTEMWIDE, FLATPAK_DEFAULT_SYSTEMWIDE_KEY};
 use crate::parser::Engine;
-use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
+use crate::{CleanCacheCommand, CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -145,8 +145,14 @@ impl Backend for Flatpak {
         self.remove_packages(true, opts)
     }
 
-    fn clean_cache(&self, _config: &Record) -> Result<()> {
-        run_command(
+    fn clean_cache(&self, _config: &Record, opts: &CleanCacheCommand) -> Result<()> {
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
+        command_action(
             ["flatpak", "remove", "--delete-data", "--unused", "--user"],
             Perms::User,
         )

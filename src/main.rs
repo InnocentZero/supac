@@ -78,7 +78,11 @@ struct ValidateCommand;
 #[derive(Args)]
 #[command(visible_alias("e"))]
 /// clean the caches of all the backends
-struct CleanCacheCommand;
+struct CleanCacheCommand {
+    #[arg(short = 'n', long)]
+    /// do not execute commands
+    dry_run: bool,
+}
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("off")).init();
@@ -148,7 +152,9 @@ fn main() -> anyhow::Result<()> {
             SubCommand::Sync(sync_command) => backend.install(&mut engine, sync_command),
             SubCommand::Unmanaged(_unmanaged_command) => todo!("Not implemented yet"),
             SubCommand::Validate(_validate_command) => todo!("Not implemented yet"),
-            SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),
+            SubCommand::CleanCache(clean_cache_command) => {
+                backend.clean_cache(&config, clean_cache_command)
+            }
         })
     });
 

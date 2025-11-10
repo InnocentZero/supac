@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use nu_protocol::{Record, Value};
 
 use crate::{
-    CleanCommand, SyncCommand,
+    CleanCacheCommand, CleanCommand, SyncCommand,
     commands::{Perms, dry_run_command, run_command, run_command_for_stdout},
     function, mod_err, nest_errors,
     parser::Engine,
@@ -78,7 +78,7 @@ impl Backend for Rustup {
         Ok(())
     }
 
-    fn clean_cache(&self, _config: &Record) -> Result<()> {
+    fn clean_cache(&self, _config: &Record, _opts: &CleanCacheCommand) -> Result<()> {
         // Nothing to do here
         Ok(())
     }

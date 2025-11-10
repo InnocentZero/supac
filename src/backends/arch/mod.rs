@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER};
 use crate::parser::Engine;
-use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
+use crate::{CleanCacheCommand, CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -176,7 +176,7 @@ impl Backend for Arch {
         }
     }
 
-    fn clean_cache(&self, config: &Record) -> Result<()> {
+    fn clean_cache(&self, config: &Record, opts: &CleanCacheCommand) -> Result<()> {
         let (package_manager, perms) = get_package_manager(config)?;
 
         let unused = run_command_for_stdout(
@@ -202,7 +202,13 @@ impl Backend for Arch {
 
         log::info!("Found unused packages, Removing unused dependencies");
 
-        run_command(
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
+        command_action(
             [
                 package_manager,
                 "--remove",

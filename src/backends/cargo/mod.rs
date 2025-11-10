@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{CARGO_USE_BINSTALL_KEY, DEFAULT_CARGO_USE_BINSTALL};
 use crate::parser::Engine;
-use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
+use crate::{CleanCacheCommand, CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -113,12 +113,18 @@ impl Backend for Cargo {
             .inspect(|_| log::info!("Successfully removed extraneous packages"))
     }
 
-    fn clean_cache(&self, _config: &Record) -> Result<()> {
+    fn clean_cache(&self, _config: &Record, opts: &CleanCacheCommand) -> Result<()> {
         let stdout = run_command_for_stdout(["cargo", "cache", "--help"], Perms::User, false);
+
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
 
         match stdout {
             Ok(_) => {
-                run_command(["cargo", "cache", "--autoclean"], Perms::User)
+                command_action(["cargo", "cache", "--autoclean"], Perms::User)
                     .map_err(|e| nest_errors!("Failed to remove cache", e))?;
                 log::debug!("Removed cargo's cache");
             }
