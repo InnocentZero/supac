@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{ARCH_PACKAGE_MANAGER_KEY, DEFAULT_PACKAGE_MANAGER};
 use crate::parser::Engine;
-use crate::{CleanCommand, function, nest_errors};
+use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -26,7 +26,7 @@ impl Backend for Arch {
     fn new(value: &Record, config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
-            .ok_or(anyhow!("Failed to get packages for Arch"))?
+            .ok_or(mod_err!("Failed to get packages for Arch"))?
             .as_list()
             .map_err(|e| nest_errors!("The package list in Arch is not a list", e))?
             .iter()
@@ -214,7 +214,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
 
     let package = record
         .get(PACKAGE_KEY)
-        .ok_or(anyhow!("No package mentioned"))?
+        .ok_or(mod_err!("No package mentioned"))?
         .as_str()
         .map_err(|e| nest_errors!("The package was not a string", e))?
         .to_owned();
