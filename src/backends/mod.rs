@@ -5,7 +5,7 @@ pub use flatpak::Flatpak;
 use nu_protocol::Record;
 pub use rustup::Rustup;
 
-use crate::{CleanCommand, parser::Engine};
+use crate::{CleanCommand, SyncCommand, parser::Engine};
 
 mod arch;
 mod cargo;
@@ -22,7 +22,7 @@ pub enum Backends {
 
 pub trait Backend {
     fn clean_cache(&self, config: &Record) -> Result<()>;
-    fn install(&self, engine: &mut Engine) -> Result<()>;
+    fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()>;
     fn new(value: &Record, config: &Record) -> Result<Self>
     where
         Self: Sized;
@@ -30,12 +30,12 @@ pub trait Backend {
 }
 
 impl Backends {
-    pub fn install(&mut self, engine: &mut Engine) -> Result<()> {
+    pub fn install(&mut self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         match self {
-            Backends::Arch(arch) => arch.install(engine),
-            Backends::Flatpak(flatpak) => flatpak.install(engine),
-            Backends::Cargo(cargo) => cargo.install(engine),
-            Backends::Rustup(rustup) => rustup.install(engine),
+            Backends::Arch(arch) => arch.install(engine, opts),
+            Backends::Flatpak(flatpak) => flatpak.install(engine, opts),
+            Backends::Cargo(cargo) => cargo.install(engine, opts),
+            Backends::Rustup(rustup) => rustup.install(engine, opts),
         }
     }
 

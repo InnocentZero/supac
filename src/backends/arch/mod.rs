@@ -43,7 +43,7 @@ impl Backend for Arch {
         })
     }
 
-    fn install(&self, engine: &mut Engine) -> Result<()> {
+    fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         let package_manager = &self.package_manager;
 
         let installed = get_installed_packages(package_manager)?;
@@ -96,7 +96,13 @@ impl Backend for Arch {
             return Ok(());
         }
 
-        run_command(
+        let command_action = if opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
+        command_action(
             [package_manager, "--sync"].into_iter().chain(missing),
             Perms::User,
         )
@@ -105,7 +111,13 @@ impl Backend for Arch {
 
         closures
             .iter()
-            .try_for_each(|closure| engine.execute_closure(closure))
+            .try_for_each(|closure| {
+                if opts.dry_run {
+                    engine.dry_run_closure(closure)
+                } else {
+                    engine.execute_closure(closure)
+                }
+            })
             .inspect(|_| log::info!("Successfully executed all closures"))
             .map_err(|e| nest_errors!("Failed to execute closures", e))
     }

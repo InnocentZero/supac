@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use nu_cli::gather_parent_env_vars;
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
@@ -11,6 +11,8 @@ use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Stack, StateWorkingSet},
 };
+
+use crate::{function, mod_err};
 
 pub struct Engine {
     engine: EngineState,
@@ -54,5 +56,22 @@ impl Engine {
             Empty,
         )
         .map(|_| Ok(()))?
+    }
+
+    pub fn dry_run_closure(&mut self, closure: &Closure) -> Result<()> {
+        let source = self
+            .engine
+            .get_block(closure.block_id)
+            .span
+            .map(|span| self.engine.get_span_contents(span))
+            .map(|source| String::from_utf8_lossy(source))
+            .ok_or(mod_err!("Failed to get the source for closure"))?;
+
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("DRY RUN CLOSURE> {source}");
+        }
+
+        Ok(())
     }
 }

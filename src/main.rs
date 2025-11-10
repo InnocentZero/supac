@@ -57,7 +57,10 @@ struct CleanCommand {
 #[command(visible_alias("s"))]
 /// install packages from groups
 struct SyncCommand {
-    #[arg(short, long)]
+    #[arg(short = 'n', long)]
+    /// do not execute commands
+    dry_run: bool,
+    #[arg(short = 'y', long)]
     /// do not ask for any confirmation
     no_confirm: bool,
 }
@@ -142,7 +145,7 @@ fn main() -> anyhow::Result<()> {
     let results = backends.iter_mut().flat_map(|backend_opt| {
         backend_opt.as_mut().map(|backend| match &args.subcommand {
             SubCommand::Clean(clean_command) => backend.remove(clean_command),
-            SubCommand::Sync(_sync_command) => backend.install(&mut engine),
+            SubCommand::Sync(sync_command) => backend.install(&mut engine, sync_command),
             SubCommand::Unmanaged(_unmanaged_command) => todo!("Not implemented yet"),
             SubCommand::Validate(_validate_command) => todo!("Not implemented yet"),
             SubCommand::CleanCache(_clean_cache_command) => backend.clean_cache(&config),

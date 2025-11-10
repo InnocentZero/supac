@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use nu_protocol::{Record, Value};
 
 use crate::{
-    CleanCommand,
+    CleanCommand, SyncCommand,
     commands::{Perms, dry_run_command, run_command, run_command_for_stdout},
     function, mod_err, nest_errors,
     parser::Engine,
@@ -54,13 +54,13 @@ impl Backend for Rustup {
         Ok(Rustup { toolchains })
     }
 
-    fn install(&self, _engine: &mut Engine) -> Result<()> {
+    fn install(&self, _engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         let installed_toolchains = get_installed_toolchains()?;
 
-        self.install_toolchains(installed_toolchains.as_ref())?;
+        self.install_toolchains(installed_toolchains.as_ref(), opts)?;
         log::info!("Installed missing toolchains");
 
-        self.install_missing(installed_toolchains.as_ref())?;
+        self.install_missing(installed_toolchains.as_ref(), opts)?;
         log::info!("Installed missing components and targets");
 
         Ok(())
@@ -85,7 +85,11 @@ impl Backend for Rustup {
 }
 
 impl Rustup {
-    fn install_toolchains(&self, installed_toolchains: &[String]) -> Result<()> {
+    fn install_toolchains(
+        &self,
+        installed_toolchains: &[String],
+        opts: &SyncCommand,
+    ) -> Result<()> {
         let configured_toolchains = self.toolchains.keys();
 
         configured_toolchains
@@ -95,11 +99,11 @@ impl Rustup {
                     .any(|installed| installed.starts_with(*toolchain))
             })
             .map(|toolchain| (toolchain, self.toolchains.get(toolchain).unwrap()))
-            .try_for_each(|(toolchain, spec)| install_missing_toolchain(toolchain, spec))
+            .try_for_each(|(toolchain, spec)| install_missing_toolchain(toolchain, spec, opts))
             .inspect(|_| log::debug!("Successfully installed all the missing toolchains"))
     }
 
-    fn install_missing(&self, installed_toolchains: &[String]) -> Result<()> {
+    fn install_missing(&self, installed_toolchains: &[String], opts: &SyncCommand) -> Result<()> {
         let configured_toolchains = installed_toolchains.iter().filter_map(|toolchain| {
             self.toolchains
                 .keys()
@@ -109,8 +113,8 @@ impl Rustup {
         for toolchain in configured_toolchains {
             let toolchain_spec = self.toolchains.get(toolchain).unwrap();
 
-            install_missing_targets(toolchain, toolchain_spec.targets.as_ref())?;
-            install_missing_components(toolchain, toolchain_spec.components.as_ref())?;
+            install_missing_targets(toolchain, toolchain_spec.targets.as_ref(), opts)?;
+            install_missing_components(toolchain, toolchain_spec.components.as_ref(), opts)?;
         }
 
         Ok(())
@@ -200,7 +204,11 @@ fn get_installed_toolchains() -> Result<Box<[String]>> {
     Ok(toolchains)
 }
 
-fn install_missing_toolchain(toolchain: &str, toolchain_spec: &ToolchainSpec) -> Result<()> {
+fn install_missing_toolchain(
+    toolchain: &str,
+    toolchain_spec: &ToolchainSpec,
+    opts: &SyncCommand,
+) -> Result<()> {
     let components = Some(
         ["--component"]
             .into_iter()
@@ -219,7 +227,13 @@ fn install_missing_toolchain(toolchain: &str, toolchain_spec: &ToolchainSpec) ->
     .filter(|_| !toolchain_spec.targets.is_empty())
     .flatten();
 
-    run_command(
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
+    command_action(
         ["rustup", "toolchain", "install"]
             .into_iter()
             .chain(components)
@@ -230,7 +244,11 @@ fn install_missing_toolchain(toolchain: &str, toolchain_spec: &ToolchainSpec) ->
     .map_err(|e| nest_errors!("Failed to install toolchain {toolchain}", e))
 }
 
-fn install_missing_targets(toolchain: &String, configured_targets: &[String]) -> Result<()> {
+fn install_missing_targets(
+    toolchain: &String,
+    configured_targets: &[String],
+    opts: &SyncCommand,
+) -> Result<()> {
     let installed_targets = get_installed_targets(toolchain)?;
 
     let mut missing_targets = configured_targets
@@ -239,11 +257,17 @@ fn install_missing_targets(toolchain: &String, configured_targets: &[String]) ->
         .map(String::as_str)
         .peekable();
 
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
     if missing_targets.peek().is_none() {
         log::debug!("No targets left to install for {toolchain}!");
         Ok(())
     } else {
-        run_command(
+        command_action(
             ["rustup", "target", "add", "--toolchain", toolchain]
                 .into_iter()
                 .chain(missing_targets),
@@ -253,7 +277,11 @@ fn install_missing_targets(toolchain: &String, configured_targets: &[String]) ->
     }
 }
 
-fn install_missing_components(toolchain: &String, configured_components: &[String]) -> Result<()> {
+fn install_missing_components(
+    toolchain: &String,
+    configured_components: &[String],
+    opts: &SyncCommand,
+) -> Result<()> {
     let installed_components = get_installed_components(toolchain)?;
 
     let mut missing_components = configured_components
@@ -267,11 +295,17 @@ fn install_missing_components(toolchain: &String, configured_components: &[Strin
         })
         .peekable();
 
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
     if missing_components.peek().is_none() {
         log::debug!("No components left to install for {toolchain}");
         Ok(())
     } else {
-        run_command(
+        command_action(
             ["rustup", "component", "add", "--toolchain", toolchain]
                 .into_iter()
                 .chain(missing_components),

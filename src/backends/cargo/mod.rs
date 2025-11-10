@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{CARGO_USE_BINSTALL_KEY, DEFAULT_CARGO_USE_BINSTALL};
 use crate::parser::Engine;
-use crate::{CleanCommand, function, mod_err, nest_errors};
+use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -60,7 +60,7 @@ impl Backend for Cargo {
         })
     }
 
-    fn install(&self, engine: &mut Engine) -> Result<()> {
+    fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         let packages = get_installed_packages()?;
 
         let configured_packages = &self.packages;
@@ -74,14 +74,20 @@ impl Backend for Cargo {
             if let Some(hook) = spec.post_hook.as_ref() {
                 post_hooks.push(hook);
             }
-            install_package(name, spec, self.installopt)
+            install_package(name, spec, self.installopt, opts)
         })?;
 
         log::info!("Successfully installed missing packages");
 
         post_hooks
             .into_iter()
-            .try_for_each(|hook| engine.execute_closure(hook))
+            .try_for_each(|hook| {
+                if opts.dry_run {
+                    engine.dry_run_closure(hook)
+                } else {
+                    engine.execute_closure(hook)
+                }
+            })
             .inspect(|_| log::info!("Successfully executed all the post hooks"))
     }
 
@@ -260,7 +266,12 @@ fn get_installed_packages() -> Result<HashSet<String>> {
     Ok(packages)
 }
 
-fn install_package(name: &str, spec: &CargoOpts, installer: &str) -> Result<()> {
+fn install_package(
+    name: &str,
+    spec: &CargoOpts,
+    installer: &str,
+    opts: &SyncCommand,
+) -> Result<()> {
     let git = Some("--git")
         .into_iter()
         .chain(spec.git_remote.as_deref())
@@ -287,7 +298,13 @@ fn install_package(name: &str, spec: &CargoOpts, installer: &str) -> Result<()> 
         .chain(features)
         .chain([name]);
 
-    run_command(command, Perms::User).map_err(|e| nest_errors!("Failed to install {name}", e))
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
+    command_action(command, Perms::User).map_err(|e| nest_errors!("Failed to install {name}", e))
 }
 
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences

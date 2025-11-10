@@ -68,7 +68,7 @@ where
     I: IntoIterator<Item = S>,
 {
     let command = get_command(args, perms)?;
-    let command_str = "DRY RUN> ".to_owned() + command.join(" ").as_str();
+    let command_str = "DRY RUN COMMAND> ".to_owned() + command.join(" ").as_str();
 
     #[allow(clippy::print_stderr)]
     {

@@ -7,7 +7,7 @@ use nu_protocol::{Record, engine::Closure};
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
 use crate::config::{DEFAULT_FLATPAK_SYSTEMWIDE, FLATPAK_DEFAULT_SYSTEMWIDE_KEY};
 use crate::parser::Engine;
-use crate::{CleanCommand, function, mod_err, nest_errors};
+use crate::{CleanCommand, SyncCommand, function, mod_err, nest_errors};
 
 use super::Backend;
 
@@ -98,7 +98,7 @@ impl Backend for Flatpak {
         })
     }
 
-    fn install(&self, engine: &mut Engine) -> Result<()> {
+    fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         let mut closures = Vec::new();
 
         let installed_user_packages = run_command_for_stdout(
@@ -109,8 +109,8 @@ impl Backend for Flatpak {
         .map_err(|e| nest_errors!("Failed to find listed user flatpak packages", e))?;
         let installed_user_packages: HashSet<_> = installed_user_packages.lines().collect();
 
-        self.install_pins(&installed_user_packages, &mut closures, false)?;
-        self.install_packages(&installed_user_packages, &mut closures, false)?;
+        self.install_pins(&installed_user_packages, &mut closures, false, opts)?;
+        self.install_packages(&installed_user_packages, &mut closures, false, opts)?;
         log::info!("Successfully installed flatpak packages");
 
         let installed_system_packages = run_command_for_stdout(
@@ -121,12 +121,18 @@ impl Backend for Flatpak {
         .map_err(|e| nest_errors!("Failed to find listed user flatpak packages", e))?;
         let installed_system_packages: HashSet<_> = installed_system_packages.lines().collect();
 
-        self.install_pins(&installed_system_packages, &mut closures, true)?;
-        self.install_packages(&installed_system_packages, &mut closures, true)?;
+        self.install_pins(&installed_system_packages, &mut closures, true, opts)?;
+        self.install_packages(&installed_system_packages, &mut closures, true, opts)?;
 
         closures
             .iter()
-            .try_for_each(|closure| engine.execute_closure(closure))
+            .try_for_each(|closure| {
+                if opts.dry_run {
+                    engine.dry_run_closure(closure)
+                } else {
+                    engine.execute_closure(closure)
+                }
+            })
             .inspect(|_| log::info!("Successful flatpak closure execution"))
             .map_err(|e| nest_errors!("Failed to execute post hooks", e))
     }
@@ -161,6 +167,7 @@ impl Flatpak {
         installed_packages: &HashSet<&str>,
         closures: &mut Vec<&'a Closure>,
         systemwide: bool,
+        command_opts: &SyncCommand,
     ) -> Result<()> {
         let (systemwide_flag, configured_pins) = if systemwide {
             ("--system", &self.system_pinned)
@@ -202,6 +209,12 @@ impl Flatpak {
             })
             .collect();
 
+        let command_action = if command_opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
         if !missing_pins.is_empty() {
             missing_pins
                 .iter()
@@ -215,7 +228,7 @@ impl Flatpak {
                 })
                 .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
 
-            run_command(
+            command_action(
                 ["flatpak", "install", systemwide_flag]
                     .into_iter()
                     .chain(missing_pins.iter().map(|(s, _, _)| s.as_str())),
@@ -233,6 +246,7 @@ impl Flatpak {
         installed_packages: &HashSet<&str>,
         closures: &mut Vec<&'a Closure>,
         systemwide: bool,
+        command_opts: &SyncCommand,
     ) -> Result<()> {
         let (systemwide_flag, configured_packages) = if systemwide {
             ("--system", &self.system_packages)
@@ -273,12 +287,18 @@ impl Flatpak {
                     .map(|remote| (package, remote, opts.post_hook.as_ref()))
             });
 
+        let command_action = if command_opts.dry_run {
+            dry_run_command
+        } else {
+            run_command
+        };
+
         for (package, remote, hook) in ref_packages {
             if let Some(hook) = hook {
                 closures.push(hook);
             }
 
-            run_command(
+            command_action(
                 ["flatpak", "install", systemwide_flag, remote, package],
                 Perms::User,
             )
