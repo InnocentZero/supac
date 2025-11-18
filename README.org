@@ -62,7 +62,7 @@ This is the order in which I wish to include package manager support:
 :ID:       576a42fc-9fe5-411a-9dc8-490b7b31ab26
 :END:
 
-- Allow dry-run
+- +Allow dry-run+
 - Add support for more package managers
 - Config validation
 - rebuild command
