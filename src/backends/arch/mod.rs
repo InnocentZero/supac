@@ -103,7 +103,10 @@ impl Backend for Arch {
         };
 
         command_action(
-            [package_manager, "--sync"].into_iter().chain(missing),
+            [package_manager, "--sync"]
+                .into_iter()
+                .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
+                .chain(missing),
             Perms::User,
         )
         .inspect(|_| log::info!("Successfully installed arch packages"))
@@ -168,6 +171,7 @@ impl Backend for Arch {
                     "--unneeded",
                 ]
                 .into_iter()
+                .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
                 .chain(extra.map(String::as_str)),
                 Perms::User,
             )
@@ -217,6 +221,7 @@ impl Backend for Arch {
                 "--unneeded",
             ]
             .into_iter()
+            .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
             .chain(unused.lines()),
             Perms::User,
         )

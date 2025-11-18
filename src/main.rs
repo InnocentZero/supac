@@ -82,6 +82,9 @@ struct CleanCacheCommand {
     #[arg(short = 'n', long)]
     /// do not execute commands
     dry_run: bool,
+    #[arg(short = 'y', long)]
+    /// do not ask for any confirmation
+    no_confirm: bool,
 }
 
 fn main() -> anyhow::Result<()> {
