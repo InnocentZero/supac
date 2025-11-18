@@ -42,6 +42,7 @@ impl Engine {
         eval_block_with_early_return::<WithoutDebug>(&self.engine, &mut self.stack, &block, Empty)
             .map(|pipeline_data| -> Result<_> {
             Ok(pipeline_data
+                .body
                 .into_value(Span::test_data())?
                 .as_record()?
                 .to_owned())
