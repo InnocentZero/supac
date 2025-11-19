@@ -121,9 +121,29 @@ impl Backend for Cargo {
             |args, perms| run_command(args, perms)
         };
 
-        packages
+        let extra_packages: HashSet<_> = packages
             .into_iter()
             .filter(|package| !configured_packages.contains_key(package))
+            .collect();
+
+        if !opts.no_confirm {
+            let answer = Confirm::new("Do you want to remove the following packages?: ")
+                .with_default(true)
+                .with_help_message(
+                    extra_packages
+                        .iter()
+                        .fold(String::new(), |acc, elem| acc + elem + ", ")
+                        .as_str(),
+                )
+                .prompt();
+
+            if !answer? {
+                return Ok(());
+            }
+        }
+
+        extra_packages
+            .iter()
             .try_for_each(|package| {
                 command_action(["cargo", "uninstall", package.as_str()], Perms::User)
                     .map_err(|e| nest_errors!("Failed to uninstall {package}", e))
@@ -139,6 +159,16 @@ impl Backend for Cargo {
         } else {
             run_command
         };
+
+        if !opts.no_confirm {
+            let answer = Confirm::new("Do you want to clean cargo cache?")
+                .with_default(true)
+                .prompt();
+
+            if !answer? {
+                return Ok(());
+            }
+        }
 
         match stdout {
             Ok(_) => {
