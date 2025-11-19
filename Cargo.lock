@@ -574,6 +574,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "convert_case"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb402b8d4c85569410425650ce3eddc7d698ed96d39a73f941b08fb63082f1e7"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -682,6 +691,24 @@ dependencies = [
  "parking_lot",
  "rustix 0.38.44",
  "serde",
+ "signal-hook",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
+name = "crossterm"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
+dependencies = [
+ "bitflags 2.10.0",
+ "crossterm_winapi",
+ "derive_more",
+ "document-features",
+ "mio 1.1.0",
+ "parking_lot",
+ "rustix 1.1.2",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -826,6 +853,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.110",
+]
+
+[[package]]
 name = "devicons"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -914,6 +962,12 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "dyn-clone"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "either"
@@ -1608,6 +1662,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "inquire"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2628910d0114e9139056161d8644a2026be7b117f8498943f9437748b04c9e0a"
+dependencies = [
+ "bitflags 2.10.0",
+ "crossterm 0.29.0",
+ "dyn-clone",
+ "fuzzy-matcher",
+ "unicode-segmentation",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
 name = "intl-memoizer"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2152,7 +2220,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0ab6fd643bb3235d3a785449a25e04dd13e99b6ca8abb46b270bba34cd39c8f"
 dependencies = [
  "chrono",
- "crossterm",
+ "crossterm 0.28.1",
  "fancy-regex",
  "is_executable",
  "log",
@@ -2238,7 +2306,7 @@ dependencies = [
  "chrono",
  "chrono-humanize",
  "chrono-tz",
- "crossterm",
+ "crossterm 0.28.1",
  "csv",
  "data-encoding",
  "devicons",
@@ -2516,7 +2584,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d43442cb69c1c9703afe66003b206b916015dd4f67d2b157bcf15ec81cba2360"
 dependencies = [
  "byteyarn",
- "crossterm",
+ "crossterm 0.28.1",
  "crossterm_winapi",
  "fancy-regex",
  "lean_string",
@@ -3190,7 +3258,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fcf9f5225169f49622af4027b6d775cf9b6313f9eba16ba9e5ebd9d319a1f0"
 dependencies = [
  "chrono",
- "crossterm",
+ "crossterm 0.28.1",
  "fd-lock",
  "itertools 0.13.0",
  "nu-ansi-term",
@@ -3795,6 +3863,7 @@ dependencies = [
  "clap",
  "derive_builder",
  "env_logger",
+ "inquire",
  "log",
  "nu-cli",
  "nu-cmd-lang",

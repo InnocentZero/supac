@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use anyhow::{Context, Result, anyhow};
+use inquire::Confirm;
 use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
@@ -64,13 +65,30 @@ impl Backend for Cargo {
         let packages = get_installed_packages()?;
 
         let configured_packages = &self.packages;
-        let mut missing_packages = configured_packages
+        let missing_packages: HashMap<_, _> = configured_packages
             .iter()
-            .filter(|(name, _)| !packages.contains(*name));
+            .filter(|(name, _)| !packages.contains(*name))
+            .collect();
 
         let mut post_hooks = Vec::new();
 
-        missing_packages.try_for_each(|(name, spec)| {
+        if !opts.no_confirm {
+            let answer = Confirm::new("Do you want to install the following packages?: ")
+                .with_default(true)
+                .with_help_message(
+                    missing_packages
+                        .keys()
+                        .fold(String::new(), |acc, elem| acc + elem + ", ")
+                        .as_str(),
+                )
+                .prompt();
+
+            if !answer? {
+                return Ok(());
+            }
+        }
+
+        missing_packages.iter().try_for_each(|(name, spec)| {
             if let Some(hook) = spec.post_hook.as_ref() {
                 post_hooks.push(hook);
             }
