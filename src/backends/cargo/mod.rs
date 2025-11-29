@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use anyhow::{Context, Result, anyhow};
-use inquire::Confirm;
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
+use crate::commands::{
+    Perms, confirmation_prompt, dry_run_command, run_command, run_command_for_stdout,
+};
 use crate::config::{CARGO_USE_BINSTALL_KEY, DEFAULT_CARGO_USE_BINSTALL};
 use crate::parser::Engine;
 use crate::{CleanCacheCommand, CleanCommand, SyncCommand, function, mod_err, nest_errors};
@@ -72,20 +73,13 @@ impl Backend for Cargo {
 
         let mut post_hooks = Vec::new();
 
-        if !opts.no_confirm {
-            let answer = Confirm::new("Do you want to install the following packages?: ")
-                .with_default(true)
-                .with_help_message(
-                    missing_packages
-                        .keys()
-                        .fold(String::new(), |acc, elem| acc + elem + ", ")
-                        .as_str(),
-                )
-                .prompt();
-
-            if !answer? {
-                return Ok(());
-            }
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to install the following packages?: ",
+                missing_packages.keys(),
+            )?
+        {
+            return Ok(());
         }
 
         missing_packages.iter().try_for_each(|(name, spec)| {
@@ -126,20 +120,13 @@ impl Backend for Cargo {
             .filter(|package| !configured_packages.contains_key(package))
             .collect();
 
-        if !opts.no_confirm {
-            let answer = Confirm::new("Do you want to remove the following packages?: ")
-                .with_default(true)
-                .with_help_message(
-                    extra_packages
-                        .iter()
-                        .fold(String::new(), |acc, elem| acc + elem + ", ")
-                        .as_str(),
-                )
-                .prompt();
-
-            if !answer? {
-                return Ok(());
-            }
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to remove the following packages?: ",
+                &extra_packages,
+            )?
+        {
+            return Ok(());
         }
 
         extra_packages
@@ -160,14 +147,13 @@ impl Backend for Cargo {
             run_command
         };
 
-        if !opts.no_confirm {
-            let answer = Confirm::new("Do you want to clean cargo cache?")
-                .with_default(true)
-                .prompt();
-
-            if !answer? {
-                return Ok(());
-            }
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to clean cargo cache?",
+                ["Using cargo-cache subcommand"],
+            )?
+        {
+            return Ok(());
         }
 
         match stdout {
