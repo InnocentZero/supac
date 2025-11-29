@@ -11,10 +11,10 @@ pub enum Perms {
     User,
 }
 
-pub fn run_command_for_stdout<I, S>(args: I, perms: Perms, hide_stderr: bool) -> Result<String>
+pub fn run_command_for_stdout<I>(args: I, perms: Perms, hide_stderr: bool) -> Result<String>
 where
-    S: Into<String>,
-    I: IntoIterator<Item = S>,
+    I: IntoIterator,
+    I::Item: Into<String>,
 {
     let args = get_command(args, perms)?;
 
@@ -39,10 +39,10 @@ where
     }
 }
 
-pub fn run_command<I, S>(args: I, perms: Perms) -> Result<()>
+pub fn run_command<I>(args: I, perms: Perms) -> Result<()>
 where
-    S: Into<String>,
-    I: IntoIterator<Item = S>,
+    I: IntoIterator,
+    I::Item: Into<String>,
 {
     let args = get_command(args, perms)?;
 
@@ -63,10 +63,10 @@ where
     }
 }
 
-pub fn dry_run_command<I, S>(args: I, perms: Perms) -> Result<()>
+pub fn dry_run_command<I>(args: I, perms: Perms) -> Result<()>
 where
-    S: Into<String>,
-    I: IntoIterator<Item = S>,
+    I: IntoIterator,
+    I::Item: Into<String>,
 {
     let command = get_command(args, perms)?;
     let command_str = "DRY RUN COMMAND> ".to_owned() + command.join(" ").as_str();
@@ -78,11 +78,11 @@ where
     Ok(())
 }
 
-pub fn confirmation_prompt<P, I, S>(prompt: P, items: I) -> Result<bool>
+pub fn confirmation_prompt<P, I>(prompt: P, items: I) -> Result<bool>
 where
     P: AsRef<str>,
-    S: AsRef<str>,
-    I: IntoIterator<Item = S>,
+    I: IntoIterator,
+    I::Item: AsRef<str>,
 {
     let answer = Confirm::new(prompt.as_ref())
         .with_default(true)
@@ -97,10 +97,10 @@ where
     answer.map_err(|_| mod_err!("Failed to retrieve answer"))
 }
 
-fn get_command<I, S>(args: I, perms: Perms) -> Result<Vec<String>>
+fn get_command<I>(args: I, perms: Perms) -> Result<Vec<String>>
 where
-    S: Into<String>,
-    I: IntoIterator<Item = S>,
+    I: IntoIterator,
+    I::Item: Into<String>,
 {
     let args: Vec<String> = args.into_iter().map(Into::into).collect();
 
