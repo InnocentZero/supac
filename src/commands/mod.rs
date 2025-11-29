@@ -1,6 +1,7 @@
 use std::process::{Command, Stdio};
 
 use anyhow::{Result, anyhow};
+use inquire::Confirm;
 
 use crate::{function, mod_err};
 
@@ -75,6 +76,25 @@ where
         eprintln!("{command_str}");
     }
     Ok(())
+}
+
+pub fn confirmation_prompt<P, I, S>(prompt: P, items: I) -> Result<bool>
+where
+    P: AsRef<str>,
+    S: AsRef<str>,
+    I: IntoIterator<Item = S>,
+{
+    let answer = Confirm::new(prompt.as_ref())
+        .with_default(true)
+        .with_help_message(
+            items
+                .into_iter()
+                .fold(" ".to_owned(), |acc, elem| acc + elem.as_ref() + " ")
+                .as_str(),
+        )
+        .prompt();
+
+    answer.map_err(|_| mod_err!("Failed to retrieve answer"))
 }
 
 fn get_command<I, S>(args: I, perms: Perms) -> Result<Vec<String>>

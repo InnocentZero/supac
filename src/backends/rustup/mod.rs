@@ -5,7 +5,7 @@ use nu_protocol::{Record, Value};
 
 use crate::{
     CleanCacheCommand, CleanCommand, SyncCommand,
-    commands::{Perms, dry_run_command, run_command, run_command_for_stdout},
+    commands::{Perms, confirmation_prompt, dry_run_command, run_command, run_command_for_stdout},
     function, mod_err, nest_errors,
     parser::Engine,
 };
@@ -92,12 +92,25 @@ impl Rustup {
     ) -> Result<()> {
         let configured_toolchains = self.toolchains.keys();
 
-        configured_toolchains
+        let missing_toolchains: Box<[_]> = configured_toolchains
             .filter(|toolchain| {
                 !installed_toolchains
                     .iter()
                     .any(|installed| installed.starts_with(*toolchain))
             })
+            .collect();
+
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to install the following toolchains?: ",
+                &missing_toolchains,
+            )?
+        {
+            return Ok(());
+        }
+
+        missing_toolchains
+            .into_iter()
             .map(|toolchain| (toolchain, self.toolchains.get(toolchain).unwrap()))
             .try_for_each(|(toolchain, spec)| install_missing_toolchain(toolchain, spec, opts))
             .inspect(|_| log::debug!("Successfully installed all the missing toolchains"))
@@ -251,11 +264,11 @@ fn install_missing_targets(
 ) -> Result<()> {
     let installed_targets = get_installed_targets(toolchain)?;
 
-    let mut missing_targets = configured_targets
+    let missing_targets: Box<[_]> = configured_targets
         .iter()
         .filter(|target| !installed_targets.contains(target))
         .map(String::as_str)
-        .peekable();
+        .collect();
 
     let command_action = if opts.dry_run {
         dry_run_command
@@ -263,7 +276,16 @@ fn install_missing_targets(
         run_command
     };
 
-    if missing_targets.peek().is_none() {
+    if !opts.no_confirm
+        && !confirmation_prompt(
+            "Do you want to install the following targets for ".to_string() + toolchain + "?: ",
+            &missing_targets,
+        )?
+    {
+        return Ok(());
+    }
+
+    if missing_targets.is_empty() {
         log::debug!("No targets left to install for {toolchain}!");
         Ok(())
     } else {
@@ -284,7 +306,7 @@ fn install_missing_components(
 ) -> Result<()> {
     let installed_components = get_installed_components(toolchain)?;
 
-    let mut missing_components = configured_components
+    let missing_components: Box<[_]> = configured_components
         .iter()
         .map(String::as_str)
         .chain(DEFAULT_COMPONENTS)
@@ -293,7 +315,7 @@ fn install_missing_components(
                 .iter()
                 .any(|comp| comp.starts_with(*component))
         })
-        .peekable();
+        .collect();
 
     let command_action = if opts.dry_run {
         dry_run_command
@@ -301,7 +323,16 @@ fn install_missing_components(
         run_command
     };
 
-    if missing_components.peek().is_none() {
+    if !opts.no_confirm
+        && !confirmation_prompt(
+            "Do you want to install the following components for ".to_string() + toolchain + "?: ",
+            &missing_components,
+        )?
+    {
+        return Ok(());
+    }
+
+    if missing_components.is_empty() {
         log::debug!("No components left to install for {toolchain}");
         Ok(())
     } else {
