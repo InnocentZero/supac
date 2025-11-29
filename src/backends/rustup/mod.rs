@@ -251,7 +251,7 @@ fn install_missing_toolchain(
     };
 
     command_action(
-        ["rustup", "toolchain", "install"]
+        ["rustup", "toolchain", "install", toolchain]
             .into_iter()
             .chain(components)
             .chain(targets),
