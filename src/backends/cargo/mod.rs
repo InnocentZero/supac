@@ -71,11 +71,15 @@ impl Backend for Cargo {
             .filter(|(name, _)| !packages.contains(*name))
             .collect();
 
+        if missing_packages.is_empty() {
+            return Ok(());
+        }
+
         let mut post_hooks = Vec::new();
 
         if !opts.no_confirm
             && !confirmation_prompt(
-                "Do you want to install the following packages?: ",
+                "Do you want to install the following packages for cargo?: ",
                 missing_packages.keys(),
             )?
         {
@@ -120,9 +124,13 @@ impl Backend for Cargo {
             .filter(|package| !configured_packages.contains_key(package))
             .collect();
 
+        if extra_packages.is_empty() {
+            return Ok(());
+        }
+
         if !opts.no_confirm
             && !confirmation_prompt(
-                "Do you want to remove the following packages?: ",
+                "Do you want to remove the following packages from cargo?: ",
                 &extra_packages,
             )?
         {

@@ -100,9 +100,13 @@ impl Rustup {
             })
             .collect();
 
+        if missing_toolchains.is_empty() {
+            return Ok(());
+        }
+
         if !opts.no_confirm
             && !confirmation_prompt(
-                "Do you want to install the following toolchains?: ",
+                "Do you want to install the following toolchains for rustup?: ",
                 &missing_toolchains,
             )?
         {
@@ -270,6 +274,10 @@ fn install_missing_targets(
         .map(String::as_str)
         .collect();
 
+    if missing_targets.is_empty() {
+        return Ok(());
+    }
+
     let command_action = if opts.dry_run {
         dry_run_command
     } else {
@@ -278,7 +286,9 @@ fn install_missing_targets(
 
     if !opts.no_confirm
         && !confirmation_prompt(
-            "Do you want to install the following targets for ".to_string() + toolchain + "?: ",
+            "Do you want to install the following targets for ".to_string()
+                + toolchain
+                + "? (Rustup): ",
             &missing_targets,
         )?
     {
@@ -317,6 +327,10 @@ fn install_missing_components(
         })
         .collect();
 
+    if missing_components.is_empty() {
+        return Ok(());
+    }
+
     let command_action = if opts.dry_run {
         dry_run_command
     } else {
@@ -325,7 +339,9 @@ fn install_missing_components(
 
     if !opts.no_confirm
         && !confirmation_prompt(
-            "Do you want to install the following components for ".to_string() + toolchain + "?: ",
+            "Do you want to install the following components for ".to_string()
+                + toolchain
+                + "? (Rustup): ",
             &missing_components,
         )?
     {
