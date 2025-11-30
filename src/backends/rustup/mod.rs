@@ -144,7 +144,7 @@ impl Rustup {
     ) -> Result<()> {
         let configured_toolchains = &self.toolchains;
 
-        let mut extra_toolchains = installed_toolchains
+        let extra_toolchains: Box<[_]> = installed_toolchains
             .iter()
             .filter(|toolchain| {
                 !configured_toolchains
@@ -153,7 +153,7 @@ impl Rustup {
                     .any(|configured| toolchain.starts_with(configured))
             })
             .map(String::as_str)
-            .peekable();
+            .collect();
 
         let command_action = if opts.dry_run {
             dry_run_command
@@ -161,7 +161,16 @@ impl Rustup {
             run_command
         };
 
-        if extra_toolchains.peek().is_none() {
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to remove the following toolchains for rustup?: ",
+                &extra_toolchains,
+            )?
+        {
+            return Ok(());
+        }
+
+        if extra_toolchains.is_empty() {
             log::debug!("No extra toolchains to remove!");
             Ok(())
         } else {
@@ -369,11 +378,22 @@ fn remove_extra_targets(
 ) -> Result<()> {
     let installed_targets = get_installed_targets(toolchain)?;
 
-    let mut extra_targets = installed_targets
+    let extra_targets: Box<[_]> = installed_targets
         .iter()
         .filter(|target| !configured_targets.contains(target))
         .map(String::as_str)
-        .peekable();
+        .collect();
+
+    if !opts.no_confirm
+        && !confirmation_prompt(
+            "Do you want to remove the following targets for ".to_string()
+                + toolchain
+                + "? (Rustup): ",
+            &extra_targets,
+        )?
+    {
+        return Ok(());
+    }
 
     let command_action = if opts.dry_run {
         dry_run_command
@@ -381,7 +401,7 @@ fn remove_extra_targets(
         run_command
     };
 
-    if extra_targets.peek().is_none() {
+    if extra_targets.is_empty() {
         log::debug!("No extra targets to remove for {toolchain}!");
         Ok(())
     } else {
@@ -403,7 +423,7 @@ fn remove_extra_components(
 ) -> Result<()> {
     let installed_components = get_installed_components(toolchain)?;
 
-    let mut extra_components = installed_components
+    let extra_components: Box<[_]> = installed_components
         .iter()
         .filter(|component| {
             !configured_components
@@ -413,7 +433,7 @@ fn remove_extra_components(
                 .any(|comp| component.starts_with(comp))
         })
         .map(String::as_str)
-        .peekable();
+        .collect();
 
     let command_action = if opts.dry_run {
         dry_run_command
@@ -421,7 +441,18 @@ fn remove_extra_components(
         run_command
     };
 
-    if extra_components.peek().is_none() {
+    if !opts.no_confirm
+        && !confirmation_prompt(
+            "Do you want to install the following components for ".to_string()
+                + toolchain
+                + "? (Rustup): ",
+            &extra_components,
+        )?
+    {
+        return Ok(());
+    }
+
+    if extra_components.is_empty() {
         log::debug!("No extra components to remove for {toolchain}!");
         Ok(())
     } else {
