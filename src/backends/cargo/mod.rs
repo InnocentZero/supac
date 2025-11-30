@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -181,22 +181,19 @@ impl Backend for Cargo {
 }
 
 impl Cargo {
-    fn get_installed_packages(&self) -> Result<HashSet<String>> {
+    // while using binstall, we need to read two crate schemas, one is
+    // the default maintained by `cargo install` and the other is the
+    // list of binaries installed by `cargo binstall`.
+    // This is because cargo-binstall falls back to source installs
+    // and does not track those installs by itself.
+    fn get_installed_packages(&self) -> Result<BTreeSet<String>> {
         if self.installopt != "binstall" && self.installopt != "install" {
             return Err(mod_err!(
                 "Failed to retrieve packages! Unsupported installer"
             ));
         }
 
-        let is_binstall = self.installopt == "binstall";
-
-        let cargo_path = get_cargo_path()?;
-
-        let crate_file = if is_binstall {
-            cargo_path + "/binstall" + "/crates-v1.json"
-        } else {
-            cargo_path + "/.crates2.json"
-        };
+        let crate_file = get_cargo_path()? + "/.crates2.json";
 
         let cratespec = match fs::read_to_string(&crate_file) {
             Ok(cratespec) => cratespec,
@@ -204,15 +201,28 @@ impl Cargo {
                 log::warn!(
                     "Error {e} occured in reading crate file. Assuming crates are not installed."
                 );
-                return Ok(HashSet::new());
+                return Ok(BTreeSet::new());
             }
         };
 
-        if is_binstall {
-            get_installed_packages_binstall(cratespec)
-        } else {
-            get_installed_packages_regular(cratespec)
+        let mut final_packages = get_installed_packages_source(cratespec)?;
+
+        if self.installopt == "binstall" {
+            let binstall_crate_file = get_cargo_path()? + "/binstall" + "/crates-v1.json";
+            let binstall_cratespec = match fs::read_to_string(&binstall_crate_file) {
+                Ok(spec) => spec,
+                Err(e) => {
+                    log::warn!(
+                        "Error {e} occured in reading binstall file. Assuming crates are not installed."
+                    );
+                    return Ok(BTreeSet::new());
+                }
+            };
+
+            final_packages.append(&mut get_installed_packages_binary(binstall_cratespec)?);
         }
+
+        Ok(final_packages)
     }
 }
 
@@ -370,7 +380,7 @@ fn get_cargo_path() -> Result<String> {
     })
 }
 
-fn get_installed_packages_binstall(cratespec: String) -> Result<HashSet<String>> {
+fn get_installed_packages_binary(cratespec: String) -> Result<BTreeSet<String>> {
     let mut cratespec = cratespec.as_str();
     let mut pkgspec = HashMap::new();
 
@@ -383,11 +393,11 @@ fn get_installed_packages_binstall(cratespec: String) -> Result<HashSet<String>>
     get_installed_packages_from_binstall_spec(pkgspec)
 }
 
-fn get_installed_packages_regular(cratespec: String) -> Result<HashSet<String>> {
+fn get_installed_packages_source(cratespec: String) -> Result<BTreeSet<String>> {
     let cratespec: serde_json::Value = serde_json::from_str(&cratespec)
         .map_err(|e| nest_errors!("error occured in parsing json data", e))?;
 
-    let packages: HashSet<_> = cratespec
+    let packages: BTreeSet<_> = cratespec
         .get(CRATE_INSTALLS_KEY)
         .ok_or_else(|| mod_err!("Malformed cratespec contents! Can't find the required installs"))?
         .as_object()
@@ -411,36 +421,29 @@ fn parse_binstall_cratespec(cratespec: &str) -> Result<(String, Box<[String]>, &
         }
     };
 
-    let pkg = pkg.as_object().ok_or_else(|| mod_err!(
-        "Parsed package was not a json object, check binstall schema!"
-    ))?;
+    let pkg = pkg
+        .as_object()
+        .ok_or_else(|| mod_err!("Parsed package was not a json object, check binstall schema!"))?;
 
     let name = pkg
         .get("name")
-        .ok_or_else(|| mod_err!(
-            "Parsed package did not have a 'name' field, check binstall schema!"
-        ))?
+        .ok_or_else(|| {
+            mod_err!("Parsed package did not have a 'name' field, check binstall schema!")
+        })?
         .as_str()
-        .ok_or_else(|| mod_err!(
-            "Parsed package's name is not a string, check binstall schema!"
-        ))?
+        .ok_or_else(|| mod_err!("Parsed package's name is not a string, check binstall schema!"))?
         .to_owned();
 
     let bins: Box<[_]> = pkg
         .get("bins")
-        .ok_or_else(|| mod_err!(
-            "{name} did not have a 'bins' field, check binstall schema!"
-        ))?
+        .ok_or_else(|| mod_err!("{name} did not have a 'bins' field, check binstall schema!"))?
         .as_array()
-        .ok_or_else(|| mod_err!(
-            "{name}'s bins are not in array format, check binstall schema!"
-        ))?
+        .ok_or_else(|| mod_err!("{name}'s bins are not in array format, check binstall schema!"))?
         .iter()
         .map(serde_json::Value::as_str)
         .map(|bins| {
-            bins.map(ToOwned::to_owned).ok_or_else(|| mod_err!(
-                "{name}'s bins are not strings, check binstall schema!"
-            ))
+            bins.map(ToOwned::to_owned)
+                .ok_or_else(|| mod_err!("{name}'s bins are not strings, check binstall schema!"))
         })
         .collect::<Result<_>>()?;
 
@@ -449,7 +452,7 @@ fn parse_binstall_cratespec(cratespec: &str) -> Result<(String, Box<[String]>, &
 
 fn get_installed_packages_from_binstall_spec(
     pkgspec: HashMap<String, Box<[String]>>,
-) -> Result<HashSet<String>> {
+) -> Result<BTreeSet<String>> {
     let cargo_binpath = get_cargo_path()? + "/bin";
 
     let packages = pkgspec
@@ -469,7 +472,9 @@ fn get_installed_packages_from_binstall_spec(
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
 // rather than just check for the existence of the package and leave it at that
 fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String, CargoOpts)> {
-    let spec = spec.as_object().ok_or_else(|| mod_err!("Malformed spec: {name}"))?;
+    let spec = spec
+        .as_object()
+        .ok_or_else(|| mod_err!("Malformed spec: {name}"))?;
 
     let (name, version_source) = name
         .split_once(' ')
