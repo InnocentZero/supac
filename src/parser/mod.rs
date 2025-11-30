@@ -66,7 +66,7 @@ impl Engine {
             .span
             .map(|span| self.engine.get_span_contents(span))
             .map(|source| String::from_utf8_lossy(source))
-            .ok_or(mod_err!("Failed to get the source for closure"))?;
+            .ok_or_else(|| mod_err!("Failed to get the source for closure"))?;
 
         #[allow(clippy::print_stderr)]
         {

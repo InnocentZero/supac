@@ -78,7 +78,7 @@ impl Backend for Flatpak {
 
         let packages: Box<[_]> = value
             .get(PACKAGE_LIST_KEY)
-            .ok_or(mod_err!("Failed to get packages for Flatpak"))?
+            .ok_or_else(|| mod_err!("Failed to get packages for Flatpak"))?
             .as_list()
             .map_err(|e| nest_errors!("Failed to parse packages for Flatpak", e))?
             .iter()

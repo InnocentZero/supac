@@ -26,7 +26,7 @@ impl Backend for Arch {
     fn new(value: &Record, config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
-            .ok_or(mod_err!("Failed to get packages for Arch"))?
+            .ok_or_else(|| mod_err!("Failed to get packages for Arch"))?
             .as_list()
             .map_err(|e| nest_errors!("The package list in Arch is not a list", e))?
             .iter()
@@ -237,7 +237,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
 
     let package = record
         .get(PACKAGE_KEY)
-        .ok_or(mod_err!("No package mentioned"))?
+        .ok_or_else(|| mod_err!("No package mentioned"))?
         .as_str()
         .map_err(|e| nest_errors!("The package was not a string", e))?
         .to_owned();

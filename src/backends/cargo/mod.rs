@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
 
 use crate::commands::{
@@ -42,7 +42,7 @@ impl Backend for Cargo {
     fn new(value: &Record, config: &Record) -> Result<Self> {
         let packages = value
             .get(PACKAGE_LIST_KEY)
-            .ok_or(mod_err!("Failed to get packages for Cargo"))?
+            .ok_or_else(|| mod_err!("Failed to get packages for Cargo"))?
             .as_list()
             .map_err(|e| nest_errors!("Packages not a list for Cargo", e))?
             .iter()
@@ -223,7 +223,7 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
 
     let package = record
         .get(PACKAGE_KEY)
-        .ok_or(mod_err!("No package mentioned"))?
+        .ok_or_else(|| mod_err!("No package mentioned"))?
         .as_str()
         .map_err(|e| nest_errors!("Package name in record is not a string", e))?
         .to_owned();
@@ -328,9 +328,7 @@ fn install_package(
         .chain(spec.git_remote.as_deref())
         .filter(|_| spec.git_remote.is_some());
 
-    let all_features = ["--all-features"]
-        .into_iter()
-        .filter(|_| spec.all_features);
+    let all_features = ["--all-features"].into_iter().filter(|_| spec.all_features);
 
     let no_default_features = ["--no-default-features"]
         .into_iter()
@@ -386,8 +384,8 @@ fn get_installed_packages_binstall(cratespec: String) -> Result<HashSet<String>>
 }
 
 fn get_installed_packages_regular(cratespec: String) -> Result<HashSet<String>> {
-    let cratespec: serde_json::Value =
-        serde_json::from_str(&cratespec).with_context(|| "error occured in parsing json data")?;
+    let cratespec: serde_json::Value = serde_json::from_str(&cratespec)
+        .map_err(|e| nest_errors!("error occured in parsing json data", e))?;
 
     let packages: HashSet<_> = cratespec
         .get(CRATE_INSTALLS_KEY)
@@ -413,34 +411,34 @@ fn parse_binstall_cratespec(cratespec: &str) -> Result<(String, Box<[String]>, &
         }
     };
 
-    let pkg = pkg.as_object().ok_or(mod_err!(
+    let pkg = pkg.as_object().ok_or_else(|| mod_err!(
         "Parsed package was not a json object, check binstall schema!"
     ))?;
 
     let name = pkg
         .get("name")
-        .ok_or(mod_err!(
+        .ok_or_else(|| mod_err!(
             "Parsed package did not have a 'name' field, check binstall schema!"
         ))?
         .as_str()
-        .ok_or(mod_err!(
+        .ok_or_else(|| mod_err!(
             "Parsed package's name is not a string, check binstall schema!"
         ))?
         .to_owned();
 
     let bins: Box<[_]> = pkg
         .get("bins")
-        .ok_or(mod_err!(
+        .ok_or_else(|| mod_err!(
             "{name} did not have a 'bins' field, check binstall schema!"
         ))?
         .as_array()
-        .ok_or(mod_err!(
+        .ok_or_else(|| mod_err!(
             "{name}'s bins are not in array format, check binstall schema!"
         ))?
         .iter()
         .map(serde_json::Value::as_str)
         .map(|bins| {
-            bins.map(ToOwned::to_owned).ok_or(mod_err!(
+            bins.map(ToOwned::to_owned).ok_or_else(|| mod_err!(
                 "{name}'s bins are not strings, check binstall schema!"
             ))
         })
@@ -471,24 +469,24 @@ fn get_installed_packages_from_binstall_spec(
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
 // rather than just check for the existence of the package and leave it at that
 fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String, CargoOpts)> {
-    let spec = spec.as_object().ok_or(mod_err!("Malformed spec: {name}"))?;
+    let spec = spec.as_object().ok_or_else(|| mod_err!("Malformed spec: {name}"))?;
 
     let (name, version_source) = name
         .split_once(' ')
-        .ok_or(mod_err!("Malformed name: {name}"))?;
+        .ok_or_else(|| mod_err!("Malformed name: {name}"))?;
 
     let (_version, source) = version_source
         .split_once(' ')
-        .ok_or(mod_err!("Malformed version/source: {name}"))?;
+        .ok_or_else(|| mod_err!("Malformed version/source: {name}"))?;
 
     let git_remote = if source.starts_with("(git+") {
         let url = source
             .split("+")
             .nth(1)
-            .ok_or(mod_err!("Malformed git source: {name}"))?
+            .ok_or_else(|| mod_err!("Malformed git source: {name}"))?
             .split("#")
             .next()
-            .ok_or(mod_err!("Malformed git url: {name}"))?
+            .ok_or_else(|| mod_err!("Malformed git url: {name}"))?
             .to_owned();
 
         Some(url)
@@ -498,21 +496,21 @@ fn _cargospec_to_pkgspec(name: &str, spec: &serde_json::Value) -> Result<(String
 
     let all_features = spec
         .get("all_features")
-        .ok_or(mod_err!("Missing field all_features: {name}"))?
+        .ok_or_else(|| mod_err!("Missing field all_features: {name}"))?
         .as_bool()
-        .ok_or(mod_err!("Malformed field all_features not a bool: {name}"))?;
+        .ok_or_else(|| mod_err!("Malformed field all_features not a bool: {name}"))?;
 
     let no_default_features = spec
         .get("no_default_features")
-        .ok_or(mod_err!("Missing field all_features: {name}"))?
+        .ok_or_else(|| mod_err!("Missing field all_features: {name}"))?
         .as_bool()
-        .ok_or(mod_err!("Malformed field all_features not a bool: {name}"))?;
+        .ok_or_else(|| mod_err!("Malformed field all_features not a bool: {name}"))?;
 
     let features = spec
         .get("features")
-        .ok_or(mod_err!("Missing field features: {name}"))?
+        .ok_or_else(|| mod_err!("Missing field features: {name}"))?
         .as_array()
-        .ok_or(mod_err!("Malformed field features: {name}"))?
+        .ok_or_else(|| mod_err!("Malformed field features: {name}"))?
         .iter()
         .map(|feature| feature.as_str().unwrap().to_string())
         .collect();
