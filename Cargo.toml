@@ -1,6 +1,6 @@
 [package]
 name = "supac"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2024"
 authors = ["innocentzer0 <1nn0c3n7z3r0@proton.me>"]
 description = "A declarative package manager for linux"
