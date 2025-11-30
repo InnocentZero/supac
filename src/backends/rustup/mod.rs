@@ -586,9 +586,7 @@ fn parse_target(target: &Value, toolchain: &str) -> Result<String> {
 
     let arch = target
         .get(ARCH_KEY)
-        .ok_or_else(|| mod_err!(
-            "Failed to get architecture from target for {toolchain}"
-        ))?
+        .ok_or_else(|| mod_err!("Failed to get architecture from target for {toolchain}"))?
         .as_str()
         .map_err(|e| nest_errors!("Architecture specified is not a string", e))?;
 
