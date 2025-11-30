@@ -101,6 +101,7 @@ impl Rustup {
             .collect();
 
         if missing_toolchains.is_empty() {
+            log::debug!("No missing toolchains to install!");
             return Ok(());
         }
 
@@ -155,25 +156,23 @@ impl Rustup {
             .map(String::as_str)
             .collect();
 
+        if extra_toolchains.is_empty() {
+            log::debug!("No extra toolchains to remove!");
+            return Ok(());
+        }
+
         let command_action = if opts.dry_run {
             dry_run_command
         } else {
             run_command
         };
 
-        if !opts.no_confirm
-            && !confirmation_prompt(
+        if opts.no_confirm
+            || confirmation_prompt(
                 "Do you want to remove the following toolchains for rustup?: ",
                 &extra_toolchains,
             )?
         {
-            return Ok(());
-        }
-
-        if extra_toolchains.is_empty() {
-            log::debug!("No extra toolchains to remove!");
-            Ok(())
-        } else {
             command_action(
                 ["rustup", "toolchain", "remove"]
                     .into_iter()
@@ -182,6 +181,8 @@ impl Rustup {
             )
             .map(|_| log::debug!("Successfully removed unused toolchains"))
             .map_err(|e| nest_errors!("Failed to remove toolchains", e))
+        } else {
+            Ok(())
         }
     }
 
@@ -284,6 +285,7 @@ fn install_missing_targets(
         .collect();
 
     if missing_targets.is_empty() {
+        log::debug!("No missing targets to install for {toolchain}");
         return Ok(());
     }
 
@@ -293,21 +295,14 @@ fn install_missing_targets(
         run_command
     };
 
-    if !opts.no_confirm
-        && !confirmation_prompt(
+    if opts.no_confirm
+        || confirmation_prompt(
             "Do you want to install the following targets for ".to_string()
                 + toolchain
                 + "? (Rustup): ",
             &missing_targets,
         )?
     {
-        return Ok(());
-    }
-
-    if missing_targets.is_empty() {
-        log::debug!("No targets left to install for {toolchain}!");
-        Ok(())
-    } else {
         command_action(
             ["rustup", "target", "add", "--toolchain", toolchain]
                 .into_iter()
@@ -315,6 +310,8 @@ fn install_missing_targets(
             Perms::User,
         )
         .map_err(|e| nest_errors!("Failed to add targets for {toolchain}", e))
+    } else {
+        Ok(())
     }
 }
 
@@ -337,6 +334,7 @@ fn install_missing_components(
         .collect();
 
     if missing_components.is_empty() {
+        log::debug!("No components left to install for {toolchain}");
         return Ok(());
     }
 
@@ -346,21 +344,14 @@ fn install_missing_components(
         run_command
     };
 
-    if !opts.no_confirm
-        && !confirmation_prompt(
+    if opts.no_confirm
+        || confirmation_prompt(
             "Do you want to install the following components for ".to_string()
                 + toolchain
                 + "? (Rustup): ",
             &missing_components,
         )?
     {
-        return Ok(());
-    }
-
-    if missing_components.is_empty() {
-        log::debug!("No components left to install for {toolchain}");
-        Ok(())
-    } else {
         command_action(
             ["rustup", "component", "add", "--toolchain", toolchain]
                 .into_iter()
@@ -368,6 +359,8 @@ fn install_missing_components(
             Perms::User,
         )
         .map_err(|e| nest_errors!("Failed to add components for {toolchain}", e))
+    } else {
+        Ok(())
     }
 }
 
@@ -384,14 +377,8 @@ fn remove_extra_targets(
         .map(String::as_str)
         .collect();
 
-    if !opts.no_confirm
-        && !confirmation_prompt(
-            "Do you want to remove the following targets for ".to_string()
-                + toolchain
-                + "? (Rustup): ",
-            &extra_targets,
-        )?
-    {
+    if extra_targets.is_empty() {
+        log::debug!("No extra targets to remove for {toolchain}!");
         return Ok(());
     }
 
@@ -401,10 +388,14 @@ fn remove_extra_targets(
         run_command
     };
 
-    if extra_targets.is_empty() {
-        log::debug!("No extra targets to remove for {toolchain}!");
-        Ok(())
-    } else {
+    if opts.no_confirm
+        || confirmation_prompt(
+            "Do you want to remove the following targets for ".to_string()
+                + toolchain
+                + "? (Rustup): ",
+            &extra_targets,
+        )?
+    {
         command_action(
             ["rustup", "target", "remove", "--toolchain", toolchain]
                 .into_iter()
@@ -413,6 +404,8 @@ fn remove_extra_targets(
         )
         .inspect(|_| log::debug!("Remove extra targets for {toolchain}"))
         .map_err(|e| nest_errors!("Failed to remove unused targets for {toolchain}", e))
+    } else {
+        Ok(())
     }
 }
 
@@ -435,27 +428,25 @@ fn remove_extra_components(
         .map(String::as_str)
         .collect();
 
+    if extra_components.is_empty() {
+        log::debug!("No extra components to remove for {toolchain}!");
+        return Ok(());
+    }
+
     let command_action = if opts.dry_run {
         dry_run_command
     } else {
         run_command
     };
 
-    if !opts.no_confirm
-        && !confirmation_prompt(
+    if opts.no_confirm
+        || confirmation_prompt(
             "Do you want to install the following components for ".to_string()
                 + toolchain
                 + "? (Rustup): ",
             &extra_components,
         )?
     {
-        return Ok(());
-    }
-
-    if extra_components.is_empty() {
-        log::debug!("No extra components to remove for {toolchain}!");
-        Ok(())
-    } else {
         command_action(
             ["rustup", "component", "remove", "--toolchain", toolchain]
                 .into_iter()
@@ -469,6 +460,8 @@ fn remove_extra_components(
                 e
             )
         })
+    } else {
+        Ok(())
     }
 }
 
