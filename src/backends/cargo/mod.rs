@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use nu_protocol::{Record, engine::Closure};
@@ -63,7 +64,7 @@ impl Backend for Cargo {
     }
 
     fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
-        let packages = get_installed_packages()?;
+        let packages = self.get_installed_packages()?;
 
         let configured_packages = &self.packages;
         let missing_packages: HashMap<_, _> = configured_packages
@@ -108,7 +109,7 @@ impl Backend for Cargo {
     }
 
     fn remove(&self, opts: &CleanCommand) -> Result<()> {
-        let packages = get_installed_packages()?;
+        let packages = self.get_installed_packages()?;
         log::info!("Successfully parsed installed packages");
 
         let configured_packages = &self.packages;
@@ -179,15 +180,39 @@ impl Backend for Cargo {
     }
 }
 
-fn get_binstall_opt(config: &Record) -> Result<bool> {
-    match config.get(CARGO_USE_BINSTALL_KEY) {
-        Some(opt) => opt.as_bool().map_err(|e| {
-            nest_errors!(
-                "Failed to parse config, cargo binstall option not a bool",
-                e
-            )
-        }),
-        None => Ok(DEFAULT_CARGO_USE_BINSTALL),
+impl Cargo {
+    fn get_installed_packages(&self) -> Result<HashSet<String>> {
+        if self.installopt != "binstall" && self.installopt != "install" {
+            return Err(mod_err!(
+                "Failed to retrieve packages! Unsupported installer"
+            ));
+        }
+
+        let is_binstall = self.installopt == "binstall";
+
+        let cargo_path = get_cargo_path()?;
+
+        let crate_file = if is_binstall {
+            cargo_path + "/binstall" + "/crates-v1.json"
+        } else {
+            cargo_path + "/.crates2.json"
+        };
+
+        let cratespec = match fs::read_to_string(&crate_file) {
+            Ok(cratespec) => cratespec,
+            Err(e) => {
+                log::warn!(
+                    "Error {e} occured in reading crate file. Assuming crates are not installed."
+                );
+                return Ok(HashSet::new());
+            }
+        };
+
+        if is_binstall {
+            get_installed_packages_binstall(cratespec)
+        } else {
+            get_installed_packages_regular(cratespec)
+        }
     }
 }
 
@@ -280,24 +305,87 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
     ))
 }
 
-fn get_installed_packages() -> Result<HashSet<String>> {
-    let crate_file = std::env::var("CARGO_HOME").or_else(|e| -> Result<String> {
+fn get_binstall_opt(config: &Record) -> Result<bool> {
+    match config.get(CARGO_USE_BINSTALL_KEY) {
+        Some(opt) => opt.as_bool().map_err(|e| {
+            nest_errors!(
+                "Failed to parse config, cargo binstall option not a bool",
+                e
+            )
+        }),
+        None => Ok(DEFAULT_CARGO_USE_BINSTALL),
+    }
+}
+
+fn install_package(
+    name: &str,
+    spec: &CargoOpts,
+    installer: &str,
+    opts: &SyncCommand,
+) -> Result<()> {
+    let git = ["--git"]
+        .into_iter()
+        .chain(spec.git_remote.as_deref())
+        .filter(|_| spec.git_remote.is_some());
+
+    let all_features = ["--all-features"]
+        .into_iter()
+        .filter(|_| spec.all_features);
+
+    let no_default_features = ["--no-default-features"]
+        .into_iter()
+        .filter(|_| spec.no_default_features);
+
+    let features = ["--features"]
+        .into_iter()
+        .chain(spec.features.iter().map(String::as_str))
+        .filter(|_| !spec.features.is_empty());
+
+    let no_confirm = ["--no-confirm"]
+        .into_iter()
+        .filter(|_| installer == "binstall");
+
+    let command = ["cargo", installer]
+        .into_iter()
+        .chain(git)
+        .chain(all_features)
+        .chain(no_default_features)
+        .chain(features)
+        .chain(no_confirm)
+        .chain([name]);
+
+    let command_action = if opts.dry_run {
+        dry_run_command
+    } else {
+        run_command
+    };
+
+    command_action(command, Perms::User).map_err(|e| nest_errors!("Failed to install {name}", e))
+}
+
+fn get_cargo_path() -> Result<String> {
+    std::env::var("CARGO_HOME").or_else(|e| -> Result<String> {
         log::debug!("Encountered error: {e}");
         log::debug!("Using the default: ~/.cargo");
         let home = std::env::var("HOME")?;
         Ok(home + "/.cargo")
-    })? + "/.crates2.json";
+    })
+}
 
-    let cratespec = match fs::read_to_string(&crate_file) {
-        Ok(cratespec) => cratespec,
-        Err(e) => {
-            log::warn!(
-                "Error {e} occured in reading crate file. Assuming crates are not installed."
-            );
-            return Ok(HashSet::new());
-        }
-    };
+fn get_installed_packages_binstall(cratespec: String) -> Result<HashSet<String>> {
+    let mut cratespec = cratespec.as_str();
+    let mut pkgspec = HashMap::new();
 
+    while !cratespec.is_empty() {
+        let (name, bins, remaining) = parse_binstall_cratespec(cratespec)?;
+        cratespec = remaining;
+        pkgspec.insert(name, bins);
+    }
+
+    get_installed_packages_from_binstall_spec(pkgspec)
+}
+
+fn get_installed_packages_regular(cratespec: String) -> Result<HashSet<String>> {
     let cratespec: serde_json::Value =
         serde_json::from_str(&cratespec).with_context(|| "error occured in parsing json data")?;
 
@@ -314,45 +402,70 @@ fn get_installed_packages() -> Result<HashSet<String>> {
     Ok(packages)
 }
 
-fn install_package(
-    name: &str,
-    spec: &CargoOpts,
-    installer: &str,
-    opts: &SyncCommand,
-) -> Result<()> {
-    let git = Some("--git")
-        .into_iter()
-        .chain(spec.git_remote.as_deref())
-        .filter(|_| spec.git_remote.is_some());
-
-    let all_features = Some("--all-features")
-        .into_iter()
-        .filter(|_| spec.all_features);
-
-    let no_default_features = Some("--no-default-features")
-        .into_iter()
-        .filter(|_| spec.no_default_features);
-
-    let features = Some("--features")
-        .into_iter()
-        .chain(spec.features.iter().map(String::as_str))
-        .filter(|_| !spec.features.is_empty());
-
-    let command = ["cargo", installer]
-        .into_iter()
-        .chain(git)
-        .chain(all_features)
-        .chain(no_default_features)
-        .chain(features)
-        .chain([name]);
-
-    let command_action = if opts.dry_run {
-        dry_run_command
-    } else {
-        run_command
+fn parse_binstall_cratespec(cratespec: &str) -> Result<(String, Box<[String]>, &str)> {
+    let (pkg, remaining): (serde_json::Value, &str) = match serde_json::from_str(cratespec) {
+        Ok(val) => (val, ""),
+        Err(e) => {
+            let index = e.column() - 1;
+            let segment = &cratespec[..index];
+            let result: serde_json::Value = serde_json::from_str(segment)?;
+            (result, &cratespec[index..])
+        }
     };
 
-    command_action(command, Perms::User).map_err(|e| nest_errors!("Failed to install {name}", e))
+    let pkg = pkg.as_object().ok_or(mod_err!(
+        "Parsed package was not a json object, check binstall schema!"
+    ))?;
+
+    let name = pkg
+        .get("name")
+        .ok_or(mod_err!(
+            "Parsed package did not have a 'name' field, check binstall schema!"
+        ))?
+        .as_str()
+        .ok_or(mod_err!(
+            "Parsed package's name is not a string, check binstall schema!"
+        ))?
+        .to_owned();
+
+    let bins: Box<[_]> = pkg
+        .get("bins")
+        .ok_or(mod_err!(
+            "{name} did not have a 'bins' field, check binstall schema!"
+        ))?
+        .as_array()
+        .ok_or(mod_err!(
+            "{name}'s bins are not in array format, check binstall schema!"
+        ))?
+        .iter()
+        .map(serde_json::Value::as_str)
+        .map(|bins| {
+            bins.map(ToOwned::to_owned).ok_or(mod_err!(
+                "{name}'s bins are not strings, check binstall schema!"
+            ))
+        })
+        .collect::<Result<_>>()?;
+
+    Ok((name, bins, remaining))
+}
+
+fn get_installed_packages_from_binstall_spec(
+    pkgspec: HashMap<String, Box<[String]>>,
+) -> Result<HashSet<String>> {
+    let cargo_binpath = get_cargo_path()? + "/bin";
+
+    let packages = pkgspec
+        .into_iter()
+        .filter(|package| {
+            package
+                .1
+                .iter()
+                .all(|bin| Path::new([cargo_binpath.as_str(), bin].join("/").as_str()).exists())
+        })
+        .map(|package| package.0)
+        .collect();
+
+    Ok(packages)
 }
 
 // TODO: Hopefully we'll eventually be able to use the spec to determine if there are any differences
