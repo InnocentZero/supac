@@ -373,9 +373,10 @@ impl Flatpak {
         )
         .map_err(|e| nest_errors!("Failed to find installed packages", e))?;
 
-        let extra_packages = installed_package
+        let mut extra_packages = installed_package
             .lines()
-            .filter(|package| !configured_packages.contains_key(*package));
+            .filter(|package| !configured_packages.contains_key(*package))
+            .peekable();
 
         let command_action = if opts.dry_run {
             dry_run_command
@@ -383,14 +384,18 @@ impl Flatpak {
             run_command
         };
 
-        command_action(
-            ["flatpak", "remove", systemwide_flag, "--delete-data"]
-                .into_iter()
-                .chain(extra_packages),
-            Perms::User,
-        )
-        .inspect(|_| log::info!("Successfully removed extra flatpak packages"))
-        .map_err(|e| nest_errors!("Failed to remove extra packages", e))
+        if extra_packages.peek().is_none() {
+            Ok(())
+        } else {
+            command_action(
+                ["flatpak", "remove", systemwide_flag, "--delete-data"]
+                    .into_iter()
+                    .chain(extra_packages),
+                Perms::User,
+            )
+            .inspect(|_| log::info!("Successfully removed extra flatpak packages"))
+            .map_err(|e| nest_errors!("Failed to remove extra packages", e))
+        }
     }
 }
 
