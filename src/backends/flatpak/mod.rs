@@ -205,11 +205,11 @@ impl Flatpak {
             .map(|(pin, opts)| {
                 (
                     pin,
-                    opts.branch
+                    opts.arch
                         .as_ref()
                         .map(|s| "/".to_owned() + s)
                         .unwrap_or_else(|| "".to_owned()),
-                    opts.arch
+                    opts.branch
                         .as_ref()
                         .map(|s| "/".to_owned() + s)
                         .unwrap_or_else(|| "".to_owned()),

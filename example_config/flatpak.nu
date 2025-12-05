@@ -8,7 +8,7 @@ let flatpak_packages =  {
   "pinned": [ # pinned user flatpak runtimes, optional
     {
       "package": "org.gtk.Gtk3theme.adw-gtk3",
-      "branch": "stable", # branch of the pinned package
+      "branch": "3.22", # branch of the pinned package
       "arch": "x86_64",
       "systemwide": false, # whether this pin is a systemwide pin or not
       "post_hook": {|| echo foo}, # executed after the pin is installed
