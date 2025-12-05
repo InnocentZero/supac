@@ -451,12 +451,8 @@ fn value_to_pkgspec(value: &Value, default_systemwide: bool) -> Result<(String, 
             let post_hook = post_hook
                 .as_closure()
                 .map_err(|e| nest_errors!("Post hook for {name} is not a closure", e))?;
-            if !post_hook.captures.is_empty() {
-                log::warn!("Post hook for {name} captures locals, ignoring");
-                None
-            } else {
-                Some(post_hook.to_owned())
-            }
+
+            Some(post_hook.to_owned())
         }
         None => None,
     };
@@ -519,12 +515,7 @@ fn value_to_pinspec(value: &Value, default_systemwide: bool) -> Result<(String, 
                 .as_closure()
                 .map_err(|e| nest_errors!("Closure for {name} is not a closure", e))?;
 
-            if !post_hook.captures.is_empty() {
-                log::warn!("closure for {name} captures variables, ignoring");
-                None
-            } else {
-                Some(post_hook.to_owned())
-            }
+            Some(post_hook.to_owned())
         }
         None => None,
     };

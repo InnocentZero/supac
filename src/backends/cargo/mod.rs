@@ -293,12 +293,8 @@ fn value_to_pkgspec(value: &nu_protocol::Value) -> Result<(String, CargoOpts)> {
             let closure = closure
                 .as_closure()
                 .map_err(|e| nest_errors!("closure for {package} not a closure", e))?;
-            if !closure.captures.is_empty() {
-                log::warn!("closure for {package} captures variables");
-                None
-            } else {
-                Some(closure.to_owned())
-            }
+
+            Some(closure.to_owned())
         }
         None => None,
     };

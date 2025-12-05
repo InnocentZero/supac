@@ -250,14 +250,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
                 None
             })
         })
-        .and_then(|post_hook| {
-            if !post_hook.captures.is_empty() {
-                log::warn!("Closure was trying to access a local variable");
-                None
-            } else {
-                Some(post_hook.to_owned())
-            }
-        });
+        .map(ToOwned::to_owned);
 
     Ok((package, post_hook))
 }
