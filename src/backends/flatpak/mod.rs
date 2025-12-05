@@ -228,6 +228,15 @@ impl Flatpak {
             return Ok(());
         }
 
+        if !command_opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to install the following pins for flatpak?: ",
+                &missing_pins,
+            )?
+        {
+            return Ok(());
+        }
+
         missing_pins
             .iter()
             .try_for_each(|pin| {
@@ -333,10 +342,11 @@ impl Flatpak {
         let pins = run_command_for_stdout(["flatpak", "pin", systemwide_flag], Perms::User, true)
             .map_err(|e| nest_errors!("Failed to find pinned packages", e))?;
 
-        let pins = pins
+        let pins: HashMap<_, _> = pins
             .lines()
             .map(|runtime| runtime.trim())
-            .map(|runtime| (runtime, parse_runtime_format(runtime, false)));
+            .map(|runtime| (runtime, parse_runtime_format(runtime, false)))
+            .collect();
 
         let command_action = if opts.dry_run {
             dry_run_command
@@ -344,7 +354,20 @@ impl Flatpak {
             run_command
         };
 
-        pins.filter(|(_, (runtime, _))| !configured_pins.contains_key(*runtime))
+        if pins.is_empty() {
+            return Ok(());
+        }
+
+        if !opts.no_confirm
+            && !confirmation_prompt(
+                "Do you want to remove the following pins for flatpak?: ",
+                pins.keys(),
+            )?
+        {
+            return Ok(());
+        }
+
+        pins.iter().filter(|(_, (runtime, _))| !configured_pins.contains_key(*runtime))
             .try_for_each(|(pin, _)| {
                 command_action(
                     ["flatpak", "pin", "--remove", systemwide_flag, pin],
