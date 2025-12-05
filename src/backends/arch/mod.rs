@@ -242,15 +242,16 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
         .map_err(|e| nest_errors!("The package was not a string", e))?
         .to_owned();
 
-    let post_hook = record
-        .get(HOOK_KEY)
-        .and_then(|closure| {
-            closure.as_closure().ok().or_else(|| {
-                log::warn!("Closure supplied in {package} was not a closure! Ignoring");
-                None
-            })
-        })
-        .map(ToOwned::to_owned);
+    let post_hook = match record.get(HOOK_KEY) {
+        Some(post_hook) => {
+            let post_hook = post_hook
+                .as_closure()
+                .map_err(|e| nest_errors!("Post hook for {package} is not a closure", e))?;
+
+            Some(post_hook.to_owned())
+        }
+        None => None,
+    };
 
     Ok((package, post_hook))
 }
