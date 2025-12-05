@@ -334,7 +334,7 @@ impl Flatpak {
         let pins = pins
             .lines()
             .map(|runtime| runtime.trim())
-            .map(|runtime| parse_runtime_format(runtime, false));
+            .map(|runtime| (runtime, parse_runtime_format(runtime, false)));
 
         let command_action = if opts.dry_run {
             dry_run_command
@@ -342,7 +342,7 @@ impl Flatpak {
             run_command
         };
 
-        pins.filter(|(runtime, _)| !configured_pins.contains_key(*runtime))
+        pins.filter(|(_, (runtime, _))| !configured_pins.contains_key(*runtime))
             .try_for_each(|(pin, _)| {
                 command_action(
                     ["flatpak", "pin", "--remove", systemwide_flag, pin],
