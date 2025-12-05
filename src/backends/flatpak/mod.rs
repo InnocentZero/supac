@@ -4,7 +4,9 @@ use anyhow::{Result, anyhow};
 use nu_protocol::Value;
 use nu_protocol::{Record, engine::Closure};
 
-use crate::commands::{Perms, dry_run_command, run_command, run_command_for_stdout};
+use crate::commands::{
+    Perms, confirmation_prompt, dry_run_command, run_command, run_command_for_stdout,
+};
 use crate::config::{DEFAULT_FLATPAK_SYSTEMWIDE, FLATPAK_DEFAULT_SYSTEMWIDE_KEY};
 use crate::parser::Engine;
 use crate::{CleanCacheCommand, CleanCommand, SyncCommand, function, mod_err, nest_errors};
@@ -213,6 +215,7 @@ impl Flatpak {
                         .unwrap_or_else(|| "".to_owned()),
                 )
             })
+            .map(|s| [s.0.as_str(), s.1.as_str(), s.2.as_str()].join(""))
             .collect();
 
         let command_action = if command_opts.dry_run {
@@ -221,30 +224,29 @@ impl Flatpak {
             run_command
         };
 
-        if !missing_pins.is_empty() {
-            missing_pins
-                .iter()
-                .map(|s| [s.0.as_str(), s.1.as_str(), s.2.as_str()].join(""))
-                .try_for_each(|pin| {
-                    run_command(
-                        ["flatpak", "pin", systemwide_flag, pin.as_str()],
-                        Perms::User,
-                    )
-                    .map_err(|e| nest_errors!("Failed to pin packages", e))
-                })
-                .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
-
-            command_action(
-                ["flatpak", "install", systemwide_flag]
-                    .into_iter()
-                    .chain(missing_pins.iter().map(|(s, _, _)| s.as_str())),
-                Perms::User,
-            )
-            .inspect(|_| log::debug!("Installed the missing runtime patterns"))
-            .map_err(|e| nest_errors!("Failed to install packages", e))?;
+        if missing_pins.is_empty() {
+            return Ok(());
         }
 
-        Ok(())
+        missing_pins
+            .iter()
+            .try_for_each(|pin| {
+                run_command(
+                    ["flatpak", "pin", systemwide_flag, pin.as_str()],
+                    Perms::User,
+                )
+                .map_err(|e| nest_errors!("Failed to pin packages", e))
+            })
+            .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
+
+        command_action(
+            ["flatpak", "install", systemwide_flag]
+                .into_iter()
+                .chain(missing_pins.iter().map(|s| s.as_str())),
+            Perms::User,
+        )
+        .inspect(|_| log::debug!("Installed the missing runtime patterns"))
+        .map_err(|e| nest_errors!("Failed to install packages", e))
     }
 
     fn install_packages<'a>(
