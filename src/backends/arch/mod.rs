@@ -298,7 +298,10 @@ fn get_package_manager(config: &Record) -> Result<(&str, Perms)> {
                 e
             )
         })?,
-        None => DEFAULT_PACKAGE_MANAGER,
+        None => {
+            log::info!("Value not specified in config, defaulting to {DEFAULT_PACKAGE_MANAGER}");
+            DEFAULT_PACKAGE_MANAGER
+        }
     };
 
     if pacman == "pacman" {

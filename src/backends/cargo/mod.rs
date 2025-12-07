@@ -73,6 +73,7 @@ impl Backend for Cargo {
             .collect();
 
         if missing_packages.is_empty() {
+            log::info!("No missing packages to install");
             return Ok(());
         }
 
@@ -126,6 +127,7 @@ impl Backend for Cargo {
             .collect();
 
         if extra_packages.is_empty() {
+            log::info!("No extra packages to remove");
             return Ok(());
         }
 
@@ -169,7 +171,7 @@ impl Backend for Cargo {
             Ok(_) => {
                 command_action(["cargo", "cache", "--autoclean"], Perms::User)
                     .map_err(|e| nest_errors!("Failed to remove cache", e))?;
-                log::debug!("Removed cargo's cache");
+                log::info!("Removed cargo's cache");
             }
             Err(_) => {
                 log::warn!("cargo-cache not found");
@@ -319,7 +321,10 @@ fn get_binstall_opt(config: &Record) -> Result<bool> {
                 e
             )
         }),
-        None => Ok(DEFAULT_CARGO_USE_BINSTALL),
+        None => {
+            log::info!("Value not specified in config, defaulting to false");
+            Ok(DEFAULT_CARGO_USE_BINSTALL)
+        }
     }
 }
 
