@@ -45,8 +45,10 @@ impl Backend for Arch {
 
     fn install(&self, engine: &mut Engine, opts: &SyncCommand) -> Result<()> {
         let package_manager = &self.package_manager;
+        let perms = self.perms;
 
-        let installed = get_installed_packages(package_manager)?;
+        let explicit_installed = get_installed_packages(package_manager, true)?;
+        let dependencies = get_installed_packages(package_manager, false)?;
 
         let mut configured: HashSet<_> = self.packages.keys().map(String::as_str).collect();
 
@@ -78,12 +80,14 @@ impl Backend for Arch {
                     .flatten()
                     .map(String::as_str),
             )
-            .filter(|package| !installed.contains(*package))
+            .filter(|package| !explicit_installed.contains(*package))
             .inspect(|package| {
                 // some packages may not have a corresponding entry in the
                 // map since we're also going over packages that are not there
                 // in the config (the packages resolved from package groups)
                 if let Some(closure) = self.packages.get(*package).unwrap_or(&None).as_ref() {
+                    // The closure will be executed even if the package status was only
+                    // changed from dependency to explicit
                     closures.push(closure);
                 }
             })
@@ -96,21 +100,50 @@ impl Backend for Arch {
             return Ok(());
         }
 
-        let command_action = if opts.dry_run {
-            dry_run_command
+        let (reason_change, missing): (Vec<_>, Vec<_>) =
+            missing.partition(|package| dependencies.contains(*package));
+
+        let (install_result, reason_result) = if opts.dry_run {
+            (
+                dry_run_command(
+                    [package_manager, "--sync"]
+                        .into_iter()
+                        .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
+                        .chain(missing),
+                    perms,
+                ),
+                dry_run_command(
+                    [package_manager, "--database", "--asexplicit"]
+                        .into_iter()
+                        .chain(reason_change),
+                    perms,
+                ),
+            )
         } else {
-            run_command
+            (
+                run_command(
+                    [package_manager, "--sync"]
+                        .into_iter()
+                        .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
+                        .chain(missing),
+                    perms,
+                ),
+                run_command(
+                    [package_manager, "--database", "--asexplicit"]
+                        .into_iter()
+                        .chain(reason_change),
+                    perms,
+                ),
+            )
         };
 
-        command_action(
-            [package_manager, "--sync"]
-                .into_iter()
-                .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
-                .chain(missing),
-            Perms::User,
-        )
-        .inspect(|_| log::info!("Successfully installed arch packages"))
-        .map_err(|e| nest_errors!("Failed to install packages", e))?;
+        install_result
+            .inspect(|_| log::info!("Successfully installed arch packages"))
+            .map_err(|e| nest_errors!("Failed to install packages", e))?;
+
+        reason_result
+            .inspect(|_| log::info!("Successfully set dependencies as explicits"))
+            .map_err(|e| nest_errors!("Failed to set dependencies as explicits", e))?;
 
         closures
             .iter()
@@ -127,8 +160,9 @@ impl Backend for Arch {
 
     fn remove(&self, opts: &CleanCommand) -> Result<()> {
         let package_manager = &self.package_manager;
+        let perms = self.perms;
 
-        let installed = get_installed_packages(package_manager)?;
+        let installed = get_installed_packages(package_manager, true)?;
 
         let mut configured: HashSet<_> = self.packages.keys().map(String::as_str).collect();
 
@@ -173,15 +207,16 @@ impl Backend for Arch {
                 .into_iter()
                 .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
                 .chain(extra.map(String::as_str)),
-                Perms::User,
+                perms,
             )
             .inspect(|_| log::info!("Removed extra packages"))
             .map_err(|e| nest_errors!("Failed to remove packages", e))
         }
     }
 
-    fn clean_cache(&self, config: &Record, opts: &CleanCacheCommand) -> Result<()> {
-        let (package_manager, perms) = get_package_manager(config)?;
+    fn clean_cache(&self, _config: &Record, opts: &CleanCacheCommand) -> Result<()> {
+        let package_manager = &self.package_manager;
+        let perms = self.perms;
 
         let unused = run_command_for_stdout(
             [
@@ -191,7 +226,7 @@ impl Backend for Arch {
                 "--unrequired",
                 "--quiet",
             ],
-            perms,
+            Perms::User,
             true,
         );
 
@@ -223,7 +258,7 @@ impl Backend for Arch {
             .into_iter()
             .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
             .chain(unused.lines()),
-            Perms::User,
+            perms
         )
         .inspect(|_| log::info!("Successfully removed all unused dependencies"))
         .map_err(|e| nest_errors!("Failed to clean cache for arch", e))
@@ -256,9 +291,15 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
     Ok((package, post_hook))
 }
 
-fn get_installed_packages(package_manager: &str) -> Result<HashSet<String>> {
+fn get_installed_packages(package_manager: &str, explicit: bool) -> Result<HashSet<String>> {
+    let flag = if explicit {
+        "--explicit"
+    } else {
+        "--deps"
+    };
+
     let packages = run_command_for_stdout(
-        [package_manager, "--query", "--explicit", "--quiet"],
+        [package_manager, "--query", flag, "--quiet"],
         Perms::User,
         false,
     )
