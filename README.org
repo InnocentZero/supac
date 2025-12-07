@@ -63,14 +63,15 @@ This is the order in which I wish to include package manager support:
 :END:
 
 - +Allow dry-run+
+- update command
+- Show unmanaged packages
 - Add support for more package managers
 - Config validation
-- rebuild command
-- Show unmanaged packages
 - allow setting config options for config-files whose config can be represented in a
   format parse-able by nushell
 - list active backends
 - Allow disabling backends
+- rebuild command
 - +clean-cache command+
 - +Flatpak systemwide installations+
 - +=pacman= support for arch+
