@@ -58,10 +58,7 @@ impl Backend for Rustup {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.install_toolchains(installed_toolchains.as_ref(), opts)?;
-        log::info!("Installed missing toolchains");
-
         self.install_missing(installed_toolchains.as_ref(), opts)?;
-        log::info!("Installed missing components and targets");
 
         Ok(())
     }
@@ -70,10 +67,7 @@ impl Backend for Rustup {
         let installed_toolchains = get_installed_toolchains()?;
 
         self.remove_toolchains(installed_toolchains.as_ref(), opts)?;
-        log::info!("Removed extra toolchains");
-
         self.remove_extra(installed_toolchains.as_ref(), opts)?;
-        log::info!("Removed extra components and targets");
 
         Ok(())
     }
@@ -101,7 +95,7 @@ impl Rustup {
             .collect();
 
         if missing_toolchains.is_empty() {
-            log::debug!("No missing toolchains to install!");
+            log::info!("No missing toolchains to install");
             return Ok(());
         }
 
@@ -118,15 +112,20 @@ impl Rustup {
             .into_iter()
             .map(|toolchain| (toolchain, self.toolchains.get(toolchain).unwrap()))
             .try_for_each(|(toolchain, spec)| install_missing_toolchain(toolchain, spec, opts))
-            .inspect(|_| log::debug!("Successfully installed all the missing toolchains"))
+            .inspect(|_| log::info!("Successfully installed all the missing toolchains"))
     }
 
     fn install_missing(&self, installed_toolchains: &[String], opts: &SyncCommand) -> Result<()> {
-        let configured_toolchains = installed_toolchains.iter().filter_map(|toolchain| {
+        let mut configured_toolchains = installed_toolchains.iter().filter_map(|toolchain| {
             self.toolchains
                 .keys()
                 .find(|configured| toolchain.starts_with(*configured))
-        });
+        }).peekable();
+
+        if configured_toolchains.peek().is_none() {
+            log::info!("No missing components or targets to install");
+            return Ok(());
+        }
 
         for toolchain in configured_toolchains {
             let toolchain_spec = self.toolchains.get(toolchain).unwrap();
@@ -135,6 +134,7 @@ impl Rustup {
             install_missing_components(toolchain, toolchain_spec.components.as_ref(), opts)?;
         }
 
+        log::info!("Installed missing components and targets");
         Ok(())
     }
 
@@ -157,7 +157,7 @@ impl Rustup {
             .collect();
 
         if extra_toolchains.is_empty() {
-            log::debug!("No extra toolchains to remove!");
+            log::info!("No extra toolchains to remove!");
             return Ok(());
         }
 
@@ -179,7 +179,7 @@ impl Rustup {
                     .chain(extra_toolchains),
                 Perms::User,
             )
-            .map(|_| log::debug!("Successfully removed unused toolchains"))
+            .inspect(|_| log::info!("Successfully removed unused toolchains"))
             .map_err(|e| nest_errors!("Failed to remove toolchains", e))
         } else {
             Ok(())
@@ -189,11 +189,16 @@ impl Rustup {
     fn remove_extra(&self, installed_toolchains: &[String], opts: &CleanCommand) -> Result<()> {
         let configured_toolchains = &self.toolchains;
 
-        let present_toolchains = installed_toolchains.iter().flat_map(|toolchain| {
+        let mut present_toolchains = installed_toolchains.iter().flat_map(|toolchain| {
             configured_toolchains
                 .keys()
                 .find(|configured| toolchain.starts_with(*configured))
-        });
+        }).peekable();
+
+        if present_toolchains.peek().is_none() {
+            log::info!("No extra components or targets to remove");
+            return Ok(());
+        }
 
         for toolchain in present_toolchains {
             let toolchain_spec = self.toolchains.get(toolchain).unwrap();
@@ -202,6 +207,7 @@ impl Rustup {
             remove_extra_components(toolchain, &toolchain_spec.components, opts)?;
         }
 
+        log::info!("Removed extra components and targets");
         Ok(())
     }
 }
