@@ -467,7 +467,7 @@ fn value_to_pkgspec(value: &Value, default_systemwide: bool) -> Result<(String, 
                 .map_err(|e| nest_errors!("systemwide for {name} not a boolean", e))
         })
         .unwrap_or_else(|| {
-            log::info!("systemwide not specified for {name}, using config default");
+            log::debug!("systemwide not specified for {name}, using config default");
             Ok(default_systemwide)
         })?;
 
@@ -530,7 +530,7 @@ fn value_to_pinspec(value: &Value, default_systemwide: bool) -> Result<(String, 
                 .map_err(|e| nest_errors!("systemwide for {name} not a boolean", e))
         })
         .unwrap_or_else(|| {
-            log::info!("systemwide not specified for {name}, using config default");
+            log::debug!("systemwide not specified for {name}, using config default");
             Ok(default_systemwide)
         })?;
 
