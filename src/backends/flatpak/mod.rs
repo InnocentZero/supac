@@ -113,7 +113,6 @@ impl Backend for Flatpak {
 
         self.install_pins(&installed_user_packages, &mut closures, false, opts)?;
         self.install_packages(&installed_user_packages, &mut closures, false, opts)?;
-        log::info!("Successfully installed flatpak packages");
 
         let installed_system_packages = run_command_for_stdout(
             ["flatpak", "list", "--system", "--columns=application"],
@@ -225,6 +224,7 @@ impl Flatpak {
         };
 
         if missing_pins.is_empty() {
+            log::info!("No missing pins to install");
             return Ok(());
         }
 
@@ -246,7 +246,7 @@ impl Flatpak {
                 )
                 .map_err(|e| nest_errors!("Failed to pin packages", e))
             })
-            .inspect(|_| log::debug!("Pinned the missing runtime patterns"))?;
+            .inspect(|_| log::info!("Pinned the missing runtime patterns"))?;
 
         command_action(
             ["flatpak", "install", systemwide_flag]
@@ -254,7 +254,7 @@ impl Flatpak {
                 .chain(missing_pins.iter().map(|s| s.as_str())),
             Perms::User,
         )
-        .inspect(|_| log::debug!("Installed the missing runtime patterns"))
+        .inspect(|_| log::info!("Installed the missing runtime patterns"))
         .map_err(|e| nest_errors!("Failed to install packages", e))
     }
 
@@ -293,7 +293,7 @@ impl Flatpak {
             .map_err(|e| nest_errors!("failed to install remote-agnostic packages", e))?;
         }
 
-        log::debug!("Installed remote-agnostic packages");
+        log::info!("Installed remote-agnostic packages");
 
         let ref_packages = configured_packages
             .iter()
@@ -327,7 +327,7 @@ impl Flatpak {
             })?;
         }
 
-        log::debug!("Installed remote-specific packages");
+        log::info!("Installed remote-specific packages");
 
         Ok(())
     }
@@ -355,6 +355,7 @@ impl Flatpak {
         };
 
         if pins.is_empty() {
+            log::info!("No pins to remove");
             return Ok(());
         }
 
@@ -410,6 +411,7 @@ impl Flatpak {
         };
 
         if extra_packages.peek().is_none() {
+            log::info!("No extra packages to remove");
             Ok(())
         } else {
             command_action(
