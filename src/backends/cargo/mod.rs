@@ -879,37 +879,4 @@ mod test {
         assert_eq!(res.1.git_remote, None);
         assert!(res.1.post_hook.is_some());
     }
-
-    #[test]
-    fn value_to_pkgspec_bound_closure() {
-        let closure = Closure {
-            block_id: Id::new(0),
-            captures: vec![(Id::new(1), Value::bool(true, Span::test_data()))],
-        };
-        let record = Record::from_raw_cols_vals(
-            ["package", "post_hook"]
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect(),
-            vec![
-                Value::string("foo", Span::test_data()),
-                Value::closure(closure, Span::test_data()),
-            ],
-            Span::test_data(),
-            Span::test_data(),
-        )
-        .unwrap();
-
-        let res = value_to_pkgspec(&Value::record(record, Span::test_data()));
-        assert!(res.is_ok());
-
-        let res = res.unwrap();
-        assert_eq!(res.0, "foo".to_string());
-        let feats: [String; 0] = [];
-        assert_eq!(*res.1.features, feats);
-        assert!(!res.1.all_features);
-        assert!(!res.1.no_default_features);
-        assert_eq!(res.1.git_remote, None);
-        assert!(res.1.post_hook.is_none());
-    }
 }

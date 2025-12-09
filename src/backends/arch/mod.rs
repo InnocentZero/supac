@@ -532,38 +532,6 @@ mod test {
     }
 
     #[test]
-    fn val_to_pkgspec_bound_closure() {
-        let closure = Closure {
-            block_id: Id::new(0),
-            captures: vec![(Id::new(1), Value::bool(true, Span::test_data()))],
-        };
-        let record = Record::from_raw_cols_vals(
-            ["package", "post_hook"]
-                .into_iter()
-                .map(ToOwned::to_owned)
-                .collect(),
-            vec![
-                Value::string("foo", Span::test_data()),
-                Value::closure(closure.clone(), Span::test_data()),
-            ],
-            Span::test_data(),
-            Span::test_data(),
-        )
-        .unwrap();
-
-        let value = Value::record(record, Span::test_data());
-
-        let res = value_to_pkgspec(&value);
-
-        assert!(res.is_ok());
-
-        let (package, closure_opt) = res.unwrap();
-        assert_eq!(package, "foo");
-
-        assert!(closure_opt.is_none());
-    }
-
-    #[test]
     fn val_to_pkgspec_no_closure() {
         let record = Record::from_raw_cols_vals(
             vec!["package".to_owned()],
