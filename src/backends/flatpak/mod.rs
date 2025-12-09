@@ -368,7 +368,8 @@ impl Flatpak {
             return Ok(());
         }
 
-        pins.iter().filter(|(_, (runtime, _))| !configured_pins.contains_key(*runtime))
+        pins.iter()
+            .filter(|(_, (runtime, _))| !configured_pins.contains_key(*runtime))
             .try_for_each(|(pin, _)| {
                 command_action(
                     ["flatpak", "pin", "--remove", systemwide_flag, pin],

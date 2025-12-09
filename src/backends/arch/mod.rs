@@ -258,7 +258,7 @@ impl Backend for Arch {
             .into_iter()
             .chain(["--noconfirm"].into_iter().filter(|_| opts.no_confirm))
             .chain(unused.lines()),
-            perms
+            perms,
         )
         .inspect(|_| log::info!("Successfully removed all unused dependencies"))
         .map_err(|e| nest_errors!("Failed to clean cache for arch", e))
@@ -292,11 +292,7 @@ fn value_to_pkgspec(value: &Value) -> Result<(String, Option<Closure>)> {
 }
 
 fn get_installed_packages(package_manager: &str, explicit: bool) -> Result<HashSet<String>> {
-    let flag = if explicit {
-        "--explicit"
-    } else {
-        "--deps"
-    };
+    let flag = if explicit { "--explicit" } else { "--deps" };
 
     let packages = run_command_for_stdout(
         [package_manager, "--query", flag, "--quiet"],

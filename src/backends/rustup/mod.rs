@@ -116,11 +116,14 @@ impl Rustup {
     }
 
     fn install_missing(&self, installed_toolchains: &[String], opts: &SyncCommand) -> Result<()> {
-        let mut configured_toolchains = installed_toolchains.iter().filter_map(|toolchain| {
-            self.toolchains
-                .keys()
-                .find(|configured| toolchain.starts_with(*configured))
-        }).peekable();
+        let mut configured_toolchains = installed_toolchains
+            .iter()
+            .filter_map(|toolchain| {
+                self.toolchains
+                    .keys()
+                    .find(|configured| toolchain.starts_with(*configured))
+            })
+            .peekable();
 
         if configured_toolchains.peek().is_none() {
             log::info!("No missing components or targets to install");
@@ -189,11 +192,14 @@ impl Rustup {
     fn remove_extra(&self, installed_toolchains: &[String], opts: &CleanCommand) -> Result<()> {
         let configured_toolchains = &self.toolchains;
 
-        let mut present_toolchains = installed_toolchains.iter().flat_map(|toolchain| {
-            configured_toolchains
-                .keys()
-                .find(|configured| toolchain.starts_with(*configured))
-        }).peekable();
+        let mut present_toolchains = installed_toolchains
+            .iter()
+            .flat_map(|toolchain| {
+                configured_toolchains
+                    .keys()
+                    .find(|configured| toolchain.starts_with(*configured))
+            })
+            .peekable();
 
         if present_toolchains.peek().is_none() {
             log::info!("No extra components or targets to remove");
